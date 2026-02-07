@@ -92,6 +92,22 @@ const agentSchema = z.object({
     dm: dmSchema,
 }).optional();
 
+/**
+ * **dynamicAgentsSchema (动态 Agent 配置)**
+ *
+ * 控制是否按用户/群组自动创建独立 Agent 实例。
+ * @property enabled - 是否启用动态 Agent
+ * @property dmCreateAgent - 私聊是否为每个用户创建独立 Agent
+ * @property groupEnabled - 群聊是否启用动态 Agent
+ * @property adminUsers - 管理员列表（绕过动态路由）
+ */
+const dynamicAgentsSchema = z.object({
+    enabled: z.boolean().optional(),
+    dmCreateAgent: z.boolean().optional(),
+    groupEnabled: z.boolean().optional(),
+    adminUsers: z.array(z.string()).optional(),
+}).optional();
+
 /** 顶层 WeCom 配置 Schema */
 export const WecomConfigSchema = z.object({
     enabled: z.boolean().optional(),
@@ -99,6 +115,7 @@ export const WecomConfigSchema = z.object({
     agent: agentSchema,
     media: mediaSchema,
     network: networkSchema,
+    dynamicAgents: dynamicAgentsSchema,
 });
 
 export type WecomConfigInput = z.infer<typeof WecomConfigSchema>;

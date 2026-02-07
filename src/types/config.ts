@@ -70,6 +70,18 @@ export type WecomAgentConfig = {
     dm?: WecomDmConfig;
 };
 
+/** 动态 Agent 配置 */
+export type WecomDynamicAgentsConfig = {
+    /** 是否启用动态 Agent */
+    enabled?: boolean;
+    /** 私聊：是否为每个用户创建独立 Agent */
+    dmCreateAgent?: boolean;
+    /** 群聊：是否启用动态 Agent */
+    groupEnabled?: boolean;
+    /** 管理员列表（绕过动态路由，使用主 Agent） */
+    adminUsers?: string[];
+};
+
 /**
  * 顶层 WeCom 配置
  * 通过 bot / agent 字段隐式指定模式
@@ -85,4 +97,6 @@ export type WecomConfig = {
     media?: WecomMediaConfig;
     /** 网络配置 */
     network?: WecomNetworkConfig;
+    /** 动态 Agent 配置 */
+    dynamicAgents?: WecomDynamicAgentsConfig;
 };

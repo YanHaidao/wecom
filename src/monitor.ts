@@ -28,6 +28,7 @@ import axios from "axios";
 import type { WecomRuntimeEnv, WecomWebhookTarget, StreamState, PendingInbound, ActiveReplyState } from "./monitor/types.js";
 import { monitorState, LIMITS } from "./monitor/state.js";
 import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "./shared/command-auth.js";
+import { generateAgentId, shouldUseDynamicAgent, ensureDynamicAgentListed } from "./dynamic-agent.js";
 
 // Global State
 monitorState.streamStore.setFlushHandler((pending) => void flushPending(pending));
@@ -926,6 +927,26 @@ async function startAgentForStream(params: {
     accountId: account.accountId,
     peer: { kind: chatType === "group" ? "group" : "dm", id: chatId },
   });
+
+  // ===== 动态 Agent 路由注入 =====
+  const useDynamicAgent = shouldUseDynamicAgent({
+    chatType: chatType === "group" ? "group" : "dm",
+    senderId: userid,
+    config,
+  });
+
+  if (useDynamicAgent) {
+    const targetAgentId = generateAgentId(
+      chatType === "group" ? "group" : "dm",
+      chatId
+    );
+    route.agentId = targetAgentId;
+    route.sessionKey = `agent:${targetAgentId}:${chatType === "group" ? "group" : "dm"}:${chatId}`;
+    // 异步添加到 agents.list（不阻塞）
+    ensureDynamicAgentListed(targetAgentId, core).catch(() => {});
+    logVerbose(target, `dynamic agent routing: ${targetAgentId}, sessionKey=${route.sessionKey}`);
+  }
+  // ===== 动态 Agent 路由注入结束 =====
 
   logVerbose(target, `starting agent processing (streamId=${streamId}, agentId=${route.agentId}, peerKind=${chatType}, peerId=${chatId})`);
   logVerbose(target, `启动 Agent 处理: streamId=${streamId} 路由=${route.agentId} 类型=${chatType} ID=${chatId}`);

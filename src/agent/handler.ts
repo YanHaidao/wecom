@@ -17,6 +17,7 @@ import { getWecomRuntime } from "../runtime.js";
 import type { WecomAgentInboundMessage } from "../types/index.js";
 import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "../shared/command-auth.js";
 import { resolveWecomMediaMaxBytes } from "../config/index.js";
+import { generateAgentId, shouldUseDynamicAgent, ensureDynamicAgentListed } from "../dynamic-agent.js";
 
 /** 错误提示信息 */
 const ERROR_HELP = "\n\n遇到问题？联系作者: YanHaidao (微信: YanHaidao)";
@@ -441,6 +442,26 @@ async function processAgentMessage(params: {
         accountId: agent.accountId,
         peer: { kind: isGroup ? "group" : "dm", id: peerId },
     });
+
+    // ===== 动态 Agent 路由注入 =====
+    const useDynamicAgent = shouldUseDynamicAgent({
+        chatType: isGroup ? "group" : "dm",
+        senderId: fromUser,
+        config,
+    });
+
+    if (useDynamicAgent) {
+        const targetAgentId = generateAgentId(
+            isGroup ? "group" : "dm",
+            peerId
+        );
+        route.agentId = targetAgentId;
+        route.sessionKey = `agent:${targetAgentId}:${isGroup ? "group" : "dm"}:${peerId}`;
+        // 异步添加到 agents.list（不阻塞）
+        ensureDynamicAgentListed(targetAgentId, core).catch(() => {});
+        log?.(`[wecom-agent] dynamic agent routing: ${targetAgentId}, sessionKey=${route.sessionKey}`);
+    }
+    // ===== 动态 Agent 路由注入结束 =====
 
     // 构建上下文
     const fromLabel = isGroup ? `group:${peerId}` : `user:${fromUser}`;
