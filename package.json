@@ -1,6 +1,6 @@
 {
   "name": "@yanhaidao/wecom",
-  "version": "2.2.5",
+  "version": "2.2.7",
   "type": "module",
   "description": "OpenClaw WeCom (WeChat Work) intelligent bot channel plugin",
   "author": "YanHaidao (VX: YanHaidao)",
