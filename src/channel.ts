@@ -4,14 +4,17 @@ import type {
   OpenClawConfig,
 } from "openclaw/plugin-sdk";
 import {
-  buildChannelConfigSchema,
-  DEFAULT_ACCOUNT_ID,
   setAccountEnabledInConfigSection,
 } from "openclaw/plugin-sdk";
 
-import { resolveWecomAccounts } from "./config/index.js";
-import { WecomConfigSchema } from "./config/index.js";
-import type { ResolvedAgentAccount, ResolvedBotAccount } from "./types/index.js";
+import {
+  DEFAULT_ACCOUNT_ID,
+  detectMode,
+  listWecomAccountIds,
+  resolveDefaultWecomAccountId,
+  resolveWecomAccount,
+} from "./config/index.js";
+import type { ResolvedWecomAccount } from "./types/index.js";
 import { registerAgentWebhookTarget, registerWecomWebhookTarget } from "./monitor.js";
 import { wecomOnboardingAdapter } from "./onboarding.js";
 import { wecomOutbound } from "./outbound.js";
@@ -34,36 +37,6 @@ function normalizeWecomMessagingTarget(raw: string): string | undefined {
   return trimmed.replace(/^(wecom-agent|wecom|wechatwork|wework|qywx):/i, "").trim() || undefined;
 }
 
-type ResolvedWecomAccount = {
-  accountId: string;
-  name?: string;
-  enabled: boolean;
-  configured: boolean;
-  bot?: ResolvedBotAccount;
-  agent?: ResolvedAgentAccount;
-};
-
-/**
- * **resolveWecomAccount (解析账号配置)**
- * 
- * 从全局配置中解析出 WeCom 渠道的配置状态。
- * 兼容 Bot 和 Agent 两种模式的配置检查。
- */
-function resolveWecomAccount(cfg: OpenClawConfig): ResolvedWecomAccount {
-  const enabled = (cfg.channels?.wecom as { enabled?: boolean } | undefined)?.enabled !== false;
-  const accounts = resolveWecomAccounts(cfg);
-  const bot = accounts.bot;
-  const agent = accounts.agent;
-  const configured = Boolean(bot?.configured || agent?.configured);
-  return {
-    accountId: DEFAULT_ACCOUNT_ID,
-    enabled,
-    configured,
-    bot,
-    agent,
-  };
-}
-
 export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
   id: "wecom",
   meta,
@@ -78,11 +51,21 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
     blockStreaming: true,
   },
   reload: { configPrefixes: ["channels.wecom"] },
-  configSchema: buildChannelConfigSchema(WecomConfigSchema),
+  // NOTE: We intentionally avoid Zod -> JSON Schema conversion at plugin-load time.
+  // Some OpenClaw runtime environments load plugin modules via jiti in a way that can
+  // surface zod `toJSONSchema()` binding issues (e.g. `this` undefined leading to `_zod` errors).
+  // A permissive schema keeps config UX working while preventing startup failures.
+  configSchema: {
+    schema: {
+      type: "object",
+      additionalProperties: true,
+      properties: {},
+    },
+  },
   config: {
-    listAccountIds: () => [DEFAULT_ACCOUNT_ID],
-    resolveAccount: (cfg) => resolveWecomAccount(cfg as OpenClawConfig),
-    defaultAccountId: () => DEFAULT_ACCOUNT_ID,
+    listAccountIds: (cfg) => listWecomAccountIds(cfg as OpenClawConfig),
+    resolveAccount: (cfg, accountId) => resolveWecomAccount({ cfg: cfg as OpenClawConfig, accountId }),
+    defaultAccountId: (cfg) => resolveDefaultWecomAccountId(cfg as OpenClawConfig),
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
       setAccountEnabledInConfigSection({
         cfg: cfg as OpenClawConfig,
@@ -101,15 +84,22 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
       return next;
     },
     isConfigured: (account) => account.configured,
-    describeAccount: (account): ChannelAccountSnapshot => ({
-      accountId: account.accountId,
-      name: account.name,
-      enabled: account.enabled,
-      configured: account.configured,
-      webhookPath: account.bot?.config ? "/wecom/bot" : account.agent?.config ? "/wecom/agent" : "/wecom",
-    }),
+    describeAccount: (account): ChannelAccountSnapshot => {
+      const matrixMode = account.accountId !== DEFAULT_ACCOUNT_ID;
+      return {
+        accountId: account.accountId,
+        name: account.name,
+        enabled: account.enabled,
+        configured: account.configured,
+        webhookPath: account.bot?.config
+          ? (matrixMode ? `/wecom/bot/${account.accountId}` : "/wecom/bot")
+          : account.agent?.config
+            ? (matrixMode ? `/wecom/agent/${account.accountId}` : "/wecom/agent")
+            : "/wecom",
+      };
+    },
     resolveAllowFrom: ({ cfg, accountId }) => {
-      const account = resolveWecomAccount(cfg as OpenClawConfig);
+      const account = resolveWecomAccount({ cfg: cfg as OpenClawConfig, accountId });
       // 与其他渠道保持一致：直接返回 allowFrom，空则允许所有人
       const allowFrom = account.agent?.config.dm?.allowFrom ?? account.bot?.config.dm?.allowFrom ?? [];
       return allowFrom.map((entry) => String(entry));
@@ -164,7 +154,11 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
       name: account.name,
       enabled: account.enabled,
       configured: account.configured,
-      webhookPath: account.bot?.config ? "/wecom/bot" : account.agent?.config ? "/wecom/agent" : "/wecom",
+      webhookPath: account.bot?.config
+        ? (account.accountId === DEFAULT_ACCOUNT_ID ? "/wecom/bot" : `/wecom/bot/${account.accountId}`)
+        : account.agent?.config
+          ? (account.accountId === DEFAULT_ACCOUNT_ID ? "/wecom/agent" : `/wecom/agent/${account.accountId}`)
+          : "/wecom",
       running: runtime?.running ?? false,
       lastStartAt: runtime?.lastStartAt ?? null,
       lastStopAt: runtime?.lastStopAt ?? null,
@@ -188,6 +182,8 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
      */
     startAccount: async (ctx) => {
       const account = ctx.account;
+      const mode = detectMode((ctx.cfg as OpenClawConfig).channels?.wecom as any);
+      const matrixMode = mode === "matrix";
       const bot = account.bot;
       const agent = account.agent;
       const botConfigured = Boolean(bot?.configured);
@@ -201,7 +197,10 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
 
       const unregisters: Array<() => void> = [];
       if (bot && botConfigured) {
-        for (const path of ["/wecom", "/wecom/bot"]) {
+        const paths = matrixMode
+          ? [`/wecom/bot/${account.accountId}`]
+          : ["/wecom", "/wecom/bot"];
+        for (const path of paths) {
           unregisters.push(
             registerWecomWebhookTarget({
               account: bot,
@@ -215,24 +214,28 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
             }),
           );
         }
-        ctx.log?.info(`[${account.accountId}] wecom bot webhook registered at /wecom and /wecom/bot`);
+        ctx.log?.info(`[${account.accountId}] wecom bot webhook registered at ${paths.join(", ")}`);
       }
       if (agent && agentConfigured) {
+        const path = matrixMode ? `/wecom/agent/${account.accountId}` : "/wecom/agent";
         unregisters.push(
           registerAgentWebhookTarget({
             agent,
             config: ctx.cfg as OpenClawConfig,
             runtime: ctx.runtime,
+            path,
           }),
         );
-        ctx.log?.info(`[${account.accountId}] wecom agent webhook registered at /wecom/agent`);
+        ctx.log?.info(`[${account.accountId}] wecom agent webhook registered at ${path}`);
       }
 
       ctx.setStatus({
         accountId: account.accountId,
         running: true,
         configured: true,
-        webhookPath: botConfigured ? "/wecom/bot" : "/wecom/agent",
+        webhookPath: botConfigured
+          ? (matrixMode ? `/wecom/bot/${account.accountId}` : "/wecom/bot")
+          : (matrixMode ? `/wecom/agent/${account.accountId}` : "/wecom/agent"),
         lastStartAt: Date.now(),
       });
       return {

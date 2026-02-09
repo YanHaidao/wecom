@@ -4,7 +4,11 @@
 
 export { WecomConfigSchema, type WecomConfigInput } from "./schema.js";
 export {
+    DEFAULT_ACCOUNT_ID,
     detectMode,
+    listWecomAccountIds,
+    resolveDefaultWecomAccountId,
+    resolveWecomAccount,
     resolveWecomAccounts,
     isWecomEnabled,
 } from "./accounts.js";

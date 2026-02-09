@@ -73,6 +73,22 @@ export function extractChatId(msg: WecomAgentInboundMessage): string | undefined
 }
 
 /**
+ * 从 XML 中提取 AgentID（兼容 AgentID/agentid 等大小写）
+ */
+export function extractAgentId(msg: WecomAgentInboundMessage): string | number | undefined {
+    const raw =
+        (msg as any).AgentID ??
+        (msg as any).AgentId ??
+        (msg as any).agentid ??
+        (msg as any).agentId;
+    if (raw == null) return undefined;
+    if (typeof raw === "string") return raw.trim() || undefined;
+    if (typeof raw === "number") return raw;
+    const asString = String(raw).trim();
+    return asString || undefined;
+}
+
+/**
  * 从 XML 中提取消息内容
  */
 export function extractContent(msg: WecomAgentInboundMessage): string {

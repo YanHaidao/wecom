@@ -4,6 +4,14 @@
 
 import { z } from "zod";
 
+function bindToJsonSchema<T extends z.ZodTypeAny>(schema: T): T {
+    const anySchema = schema as unknown as { toJSONSchema?: (...args: any[]) => unknown };
+    if (typeof anySchema.toJSONSchema === "function") {
+        anySchema.toJSONSchema = anySchema.toJSONSchema.bind(schema) as any;
+    }
+    return schema;
+}
+
 /**
  * **dmSchema (单聊配置)**
  * 
@@ -62,8 +70,10 @@ const networkSchema = z.object({
  * @property dm - 单聊策略覆盖配置
  */
 const botSchema = z.object({
+    aibotid: z.string().optional(),
     token: z.string(),
     encodingAESKey: z.string(),
+    botIds: z.array(z.string()).optional(),
     receiveId: z.string().optional(),
     streamPlaceholderContent: z.string().optional(),
     welcomeText: z.string().optional(),
@@ -76,7 +86,7 @@ const botSchema = z.object({
  * 用于配置企业微信自建应用 (Agent)。
  * @property corpId - 企业 ID (CorpID)
  * @property corpSecret - 应用 Secret
- * @property agentId - 应用 AgentId (数字)
+ * @property agentId - 应用 AgentId (数字，可选)
  * @property token - 回调配置 Token
  * @property encodingAESKey - 回调配置 EncodingAESKey
  * @property welcomeText - (可选) 欢迎语
@@ -85,7 +95,7 @@ const botSchema = z.object({
 const agentSchema = z.object({
     corpId: z.string(),
     corpSecret: z.string(),
-    agentId: z.union([z.string(), z.number()]),
+    agentId: z.union([z.string(), z.number()]).optional(),
     token: z.string(),
     encodingAESKey: z.string(),
     welcomeText: z.string().optional(),
@@ -108,14 +118,24 @@ const dynamicAgentsSchema = z.object({
     adminUsers: z.array(z.string()).optional(),
 }).optional();
 
+/** Matrix 账号条目 */
+const accountSchema = z.object({
+    enabled: z.boolean().optional(),
+    name: z.string().optional(),
+    bot: botSchema,
+    agent: agentSchema,
+});
+
 /** 顶层 WeCom 配置 Schema */
-export const WecomConfigSchema = z.object({
+export const WecomConfigSchema = bindToJsonSchema(z.object({
     enabled: z.boolean().optional(),
     bot: botSchema,
     agent: agentSchema,
+    accounts: z.record(accountSchema).optional(),
+    defaultAccount: z.string().optional(),
     media: mediaSchema,
     network: networkSchema,
     dynamicAgents: dynamicAgentsSchema,
-});
+}));
 
 export type WecomConfigInput = z.infer<typeof WecomConfigSchema>;

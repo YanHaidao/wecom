@@ -2,7 +2,13 @@
  * WeCom 账号类型定义
  */
 
-import type { WecomBotConfig, WecomAgentConfig, WecomDmConfig, WecomNetworkConfig } from "./config.js";
+import type {
+    WecomBotConfig,
+    WecomAgentConfig,
+    WecomDmConfig,
+    WecomNetworkConfig,
+    WecomAccountConfig,
+} from "./config.js";
 
 /**
  * 解析后的 Bot 账号
@@ -40,8 +46,8 @@ export type ResolvedAgentAccount = {
     corpId: string;
     /** 应用 Secret */
     corpSecret: string;
-    /** 应用 ID (数字) */
-    agentId: number;
+    /** 应用 ID (数字，可选) */
+    agentId?: number;
     /** 回调 Token */
     token: string;
     /** 回调加密密钥 */
@@ -52,23 +58,46 @@ export type ResolvedAgentAccount = {
     network?: WecomNetworkConfig;
 };
 
+/** Matrix/Legacy 的统一账号解析结果 */
+export type ResolvedWecomAccount = {
+    /** 账号 ID（用于 bindings.match.accountId） */
+    accountId: string;
+    /** 展示名称 */
+    name?: string;
+    /** 是否启用 */
+    enabled: boolean;
+    /** 是否具备至少一种可用能力（bot/agent） */
+    configured: boolean;
+    /** 原始账号配置（Matrix 条目或 Legacy 聚合） */
+    config: WecomAccountConfig;
+    /** Bot 能力 */
+    bot?: ResolvedBotAccount;
+    /** Agent 能力 */
+    agent?: ResolvedAgentAccount;
+};
+
+/** 解析模式 */
+export type ResolvedMode = "disabled" | "legacy" | "matrix";
+
 /**
  * 已解析的模式状态
  */
-export type ResolvedMode = {
-    /** Bot 模式是否已配置 */
-    bot: boolean;
-    /** Agent 模式是否已配置 */
-    agent: boolean;
-};
-
-/**
- * 解析后的 WeCom 账号集合
- */
 export type ResolvedWecomAccounts = {
-    /** Bot 模式账号 */
+    /** 当前模式 */
+    mode: ResolvedMode;
+    /** 默认账号 ID */
+    defaultAccountId: string;
+    /** 账号集合（Legacy 下仅 default） */
+    accounts: Record<string, ResolvedWecomAccount>;
+    /**
+     * 向后兼容：默认账号的 bot（历史调用点仍可读取）。
+     * Matrix 下等价于 defaultAccountId 对应账号的 bot。
+     */
     bot?: ResolvedBotAccount;
-    /** Agent 模式账号 */
+    /**
+     * 向后兼容：默认账号的 agent（历史调用点仍可读取）。
+     * Matrix 下等价于 defaultAccountId 对应账号的 agent。
+     */
     agent?: ResolvedAgentAccount;
 };
 

@@ -1,20 +1,31 @@
 import type { ChannelOutboundAdapter, ChannelOutboundContext } from "openclaw/plugin-sdk";
 
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
-import { resolveWecomAccounts } from "./config/index.js";
+import { resolveWecomAccount } from "./config/index.js";
 import { getWecomRuntime } from "./runtime.js";
 
 import { resolveWecomTarget } from "./target.js";
 
-function resolveAgentConfigOrThrow(cfg: ChannelOutboundContext["cfg"]) {
-  const account = resolveWecomAccounts(cfg).agent;
+function resolveAgentConfigOrThrow(params: {
+  cfg: ChannelOutboundContext["cfg"];
+  accountId?: string | null;
+}) {
+  const account = resolveWecomAccount({
+    cfg: params.cfg,
+    accountId: params.accountId,
+  }).agent;
   if (!account?.configured) {
     throw new Error(
-      "WeCom outbound requires Agent mode. Configure channels.wecom.agent (corpId/corpSecret/agentId/token/encodingAESKey).",
+      `WeCom outbound requires Agent mode for account=${params.accountId ?? "default"}. Configure channels.wecom.accounts.<accountId>.agent (or legacy channels.wecom.agent).`,
+    );
+  }
+  if (typeof account.agentId !== "number" || !Number.isFinite(account.agentId)) {
+    throw new Error(
+      `WeCom outbound requires channels.wecom.accounts.<accountId>.agent.agentId (or legacy channels.wecom.agent.agentId) for account=${params.accountId ?? account.accountId}.`,
     );
   }
   // 注意：不要在日志里输出 corpSecret 等敏感信息
-  console.log(`[wecom-outbound] Using agent config: corpId=${account.corpId}, agentId=${account.agentId}`);
+  console.log(`[wecom-outbound] Using agent config: accountId=${account.accountId}, corpId=${account.corpId}, agentId=${account.agentId}`);
   return account;
 }
 
@@ -29,10 +40,10 @@ export const wecomOutbound: ChannelOutboundAdapter = {
       return [text];
     }
   },
-  sendText: async ({ cfg, to, text }: ChannelOutboundContext) => {
+  sendText: async ({ cfg, to, text, accountId }: ChannelOutboundContext) => {
     // signal removed - not supported in current SDK
 
-    const agent = resolveAgentConfigOrThrow(cfg);
+    const agent = resolveAgentConfigOrThrow({ cfg, accountId });
     const target = resolveWecomTarget(to);
     if (!target) {
       throw new Error("WeCom outbound requires a target (userid, partyid, tagid or chatid).");
@@ -98,10 +109,10 @@ export const wecomOutbound: ChannelOutboundAdapter = {
       timestamp: Date.now(),
     };
   },
-  sendMedia: async ({ cfg, to, text, mediaUrl }: ChannelOutboundContext) => {
+  sendMedia: async ({ cfg, to, text, mediaUrl, accountId }: ChannelOutboundContext) => {
     // signal removed - not supported in current SDK
 
-    const agent = resolveAgentConfigOrThrow(cfg);
+    const agent = resolveAgentConfigOrThrow({ cfg, accountId });
     const target = resolveWecomTarget(to);
     if (!target) {
       throw new Error("WeCom outbound requires a target (userid, partyid, tagid or chatid).");

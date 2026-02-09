@@ -11,7 +11,17 @@ import type { ResolvedAgentAccount } from "../types/index.js";
 import { LIMITS } from "../types/constants.js";
 import { decryptWecomEncrypted, verifyWecomSignature, computeWecomMsgSignature, encryptWecomPlaintext } from "../crypto/index.js";
 import { extractEncryptFromXml, buildEncryptedXmlResponse } from "../crypto/xml.js";
-import { parseXml, extractMsgType, extractFromUser, extractContent, extractChatId, extractMediaId, extractMsgId, extractFileName } from "../shared/xml-parser.js";
+import {
+    parseXml,
+    extractMsgType,
+    extractFromUser,
+    extractContent,
+    extractChatId,
+    extractMediaId,
+    extractMsgId,
+    extractFileName,
+    extractAgentId,
+} from "../shared/xml-parser.js";
 import { sendText, downloadMedia } from "./api-client.js";
 import { getWecomRuntime } from "../runtime.js";
 import type { WecomAgentInboundMessage } from "../types/index.js";
@@ -99,12 +109,22 @@ function buildTextFilePreview(buffer: Buffer, maxChars: number): string | undefi
 export type AgentWebhookParams = {
     req: IncomingMessage;
     res: ServerResponse;
+    /** 预读取的原始 XML（由上游路由器提供） */
+    rawXml?: string;
     agent: ResolvedAgentAccount;
     config: OpenClawConfig;
     core: PluginRuntime;
     log?: (msg: string) => void;
     error?: (msg: string) => void;
 };
+
+function normalizeAgentId(value: unknown): number | undefined {
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    const raw = String(value ?? "").trim();
+    if (!raw) return undefined;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? parsed : undefined;
+}
 
 /**
  * **resolveQueryParams (解析查询参数)**
@@ -209,13 +229,13 @@ async function handleUrlVerification(
  * 处理消息回调 (POST)
  */
 async function handleMessageCallback(params: AgentWebhookParams): Promise<boolean> {
-    const { req, res, agent, config, core, log, error } = params;
+    const { req, res, rawXml, agent, config, core, log, error } = params;
 
     try {
         log?.(`[wecom-agent] inbound: method=${req.method ?? "UNKNOWN"} remote=${req.socket?.remoteAddress ?? "unknown"}`);
-        const rawXml = await readRawBody(req);
-        log?.(`[wecom-agent] inbound: rawXmlBytes=${Buffer.byteLength(rawXml, "utf8")}`);
-        const encrypted = extractEncryptFromXml(rawXml);
+        const resolvedRawXml = rawXml ?? (await readRawBody(req));
+        log?.(`[wecom-agent] inbound: rawXmlBytes=${Buffer.byteLength(resolvedRawXml, "utf8")}`);
+        const encrypted = extractEncryptFromXml(resolvedRawXml);
         log?.(`[wecom-agent] inbound: hasEncrypt=${Boolean(encrypted)} encryptLen=${encrypted ? String(encrypted).length : 0}`);
 
         const query = resolveQueryParams(req);
@@ -253,6 +273,17 @@ async function handleMessageCallback(params: AgentWebhookParams): Promise<boolea
 
         // 解析 XML
         const msg = parseXml(decrypted);
+        const inboundAgentId = normalizeAgentId(extractAgentId(msg));
+        if (
+            inboundAgentId !== undefined &&
+            typeof agent.agentId === "number" &&
+            Number.isFinite(agent.agentId) &&
+            inboundAgentId !== agent.agentId
+        ) {
+            error?.(
+                `[wecom-agent] inbound: agentId mismatch ignored expectedAgentId=${agent.agentId} actualAgentId=${String(extractAgentId(msg) ?? "")}`,
+            );
+        }
         const msgType = extractMsgType(msg);
         const fromUser = extractFromUser(msg);
         const chatId = extractChatId(msg);

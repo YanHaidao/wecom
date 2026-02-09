@@ -25,6 +25,11 @@ type TokenCache = {
 
 const tokenCaches = new Map<string, TokenCache>();
 
+function requireAgentId(agent: ResolvedAgentAccount): number {
+    if (typeof agent.agentId === "number" && Number.isFinite(agent.agentId)) return agent.agentId;
+    throw new Error(`wecom agent account=${agent.accountId} missing agentId; sending via cgi-bin/message/send requires agentId`);
+}
+
 /**
  * **getAccessToken (获取 AccessToken)**
  * 
@@ -35,7 +40,7 @@ const tokenCaches = new Map<string, TokenCache>();
  * @returns 有效的 AccessToken
  */
 export async function getAccessToken(agent: ResolvedAgentAccount): Promise<string> {
-    const cacheKey = `${agent.corpId}:${agent.agentId}`;
+    const cacheKey = `${agent.corpId}:${String(agent.agentId ?? "na")}`;
     let cache = tokenCaches.get(cacheKey);
 
     if (!cache) {
@@ -109,7 +114,7 @@ export async function sendText(params: {
             toparty: toParty,
             totag: toTag,
             msgtype: "text",
-            agentid: agent.agentId,
+            agentid: requireAgentId(agent),
             text: { content: text }
         };
 
@@ -252,7 +257,7 @@ export async function sendMedia(params: {
             toparty: toParty,
             totag: toTag,
             msgtype: mediaType,
-            agentid: agent.agentId,
+            agentid: requireAgentId(agent),
             [mediaType]: mediaPayload
         };
 

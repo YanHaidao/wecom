@@ -9,13 +9,15 @@ import type { ResolvedAgentAccount } from "./types/index.js";
 import type { ResolvedBotAccount } from "./types/index.js";
 import type { WecomInboundMessage, WecomInboundQuote } from "./types.js";
 import { decryptWecomEncrypted, encryptWecomPlaintext, verifyWecomSignature, computeWecomMsgSignature } from "./crypto.js";
+import { extractEncryptFromXml } from "./crypto/xml.js";
 import { getWecomRuntime } from "./runtime.js";
 import { decryptWecomMedia, decryptWecomMediaWithHttp } from "./media.js";
 import { WEBHOOK_PATHS } from "./types/constants.js";
 import { handleAgentWebhook } from "./agent/index.js";
-import { resolveWecomAccounts, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes } from "./config/index.js";
+import { resolveWecomAccount, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes } from "./config/index.js";
 import { wecomFetch } from "./http.js";
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
+import { extractAgentId, parseXml } from "./shared/xml-parser.js";
 import axios from "axios";
 
 /**
@@ -45,9 +47,10 @@ type AgentWebhookTarget = {
   agent: ResolvedAgentAccount;
   config: OpenClawConfig;
   runtime: WecomRuntimeEnv;
+  path: string;
   // ...
 };
-const agentTargets = new Map<string, AgentWebhookTarget>();
+const agentTargets = new Map<string, AgentWebhookTarget[]>();
 
 const pendingInbounds = new Map<string, PendingInbound>();
 
@@ -214,6 +217,101 @@ function resolveSignatureParam(params: URLSearchParams): string {
   );
 }
 
+type RouteFailureReason =
+  | "wecom_account_not_found"
+  | "wecom_account_conflict"
+  | "wecom_identity_mismatch"
+  | "wecom_matrix_path_required";
+
+function isLegacyWecomPath(path: string): boolean {
+  return path === WEBHOOK_PATHS.BOT || path === WEBHOOK_PATHS.BOT_ALT || path === WEBHOOK_PATHS.AGENT;
+}
+
+function hasMatrixExplicitRoutesRegistered(): boolean {
+  for (const key of webhookTargets.keys()) {
+    if (key.startsWith(`${WEBHOOK_PATHS.BOT_ALT}/`)) return true;
+  }
+  for (const key of agentTargets.keys()) {
+    if (key.startsWith(`${WEBHOOK_PATHS.AGENT}/`)) return true;
+  }
+  return false;
+}
+
+function maskAccountId(accountId: string): string {
+  const normalized = accountId.trim();
+  if (!normalized) return "***";
+  if (normalized.length <= 4) return `${normalized[0] ?? "*"}***`;
+  return `${normalized.slice(0, 2)}***${normalized.slice(-2)}`;
+}
+
+function logRouteFailure(params: {
+  reqId: string;
+  path: string;
+  method: string;
+  reason: RouteFailureReason;
+  candidateAccountIds: string[];
+}): void {
+  const payload = {
+    reqId: params.reqId,
+    path: params.path,
+    method: params.method,
+    reason: params.reason,
+    candidateAccountIds: params.candidateAccountIds.map(maskAccountId),
+  };
+  console.error(`[wecom] route-error ${JSON.stringify(payload)}`);
+}
+
+function writeRouteFailure(
+  res: ServerResponse,
+  reason: RouteFailureReason,
+  message: string,
+): void {
+  res.statusCode = 401;
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.end(JSON.stringify({ error: reason, message }));
+}
+
+async function readTextBody(req: IncomingMessage, maxBytes: number): Promise<{ ok: true; value: string } | { ok: false; error: string }> {
+  const chunks: Buffer[] = [];
+  let total = 0;
+  return await new Promise((resolve) => {
+    req.on("data", (chunk: Buffer) => {
+      total += chunk.length;
+      if (total > maxBytes) {
+        resolve({ ok: false as const, error: "payload too large" });
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => {
+      resolve({ ok: true as const, value: Buffer.concat(chunks).toString("utf8") });
+    });
+    req.on("error", (err) => {
+      resolve({ ok: false as const, error: err instanceof Error ? err.message : String(err) });
+    });
+  });
+}
+
+function normalizeAgentIdValue(value: unknown): number | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const raw = String(value ?? "").trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function resolveBotIdentitySet(target: WecomWebhookTarget): Set<string> {
+  const ids = new Set<string>();
+  const single = target.account.config.aibotid?.trim();
+  if (single) ids.add(single);
+  for (const botId of target.account.config.botIds ?? []) {
+    const normalized = String(botId ?? "").trim();
+    if (normalized) ids.add(normalized);
+  }
+  return ids;
+}
+
 function buildStreamPlaceholderReply(params: {
   streamId: string;
   placeholderContent?: string;
@@ -284,8 +382,8 @@ function computeTaskKey(target: WecomWebhookTarget, msg: WecomInboundMessage): s
   return `bot:${target.account.accountId}:${aibotid}:${msgid}`;
 }
 
-function resolveAgentAccountOrUndefined(cfg: OpenClawConfig): ResolvedAgentAccount | undefined {
-  const agent = resolveWecomAccounts(cfg).agent;
+function resolveAgentAccountOrUndefined(cfg: OpenClawConfig, accountId: string): ResolvedAgentAccount | undefined {
+  const agent = resolveWecomAccount({ cfg, accountId }).agent;
   return agent?.configured ? agent : undefined;
 }
 
@@ -840,7 +938,7 @@ async function startAgentForStream(params: {
 
     // 2) 非图片文件：Bot 会话里提示 + Agent 私信兜底（目标锁定 userId）
     if (otherPaths.length > 0) {
-      const agentCfg = resolveAgentAccountOrUndefined(config);
+      const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
       const agentOk = Boolean(agentCfg);
 
       const filename = otherPaths.length === 1 ? otherPaths[0]!.split("/").pop()! : `${otherPaths.length} 个文件`;
@@ -1206,7 +1304,7 @@ async function startAgentForStream(params: {
         const switchAt = deadline - BOT_SWITCH_MARGIN_MS;
         const nearTimeout = !current.fallbackMode && !current.finished && now >= switchAt;
         if (nearTimeout) {
-          const agentCfg = resolveAgentAccountOrUndefined(config);
+          const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
           const agentOk = Boolean(agentCfg);
           const prompt = buildFallbackPrompt({
             kind: "timeout",
@@ -1264,7 +1362,7 @@ async function startAgentForStream(params: {
               logVerbose(target, `media: 识别为图片 contentType=${contentType} filename=${filename}`);
             } else {
               // Non-image media: Bot 不支持原样发送（尤其群聊），统一切换到 Agent 私信兜底，并在 Bot 会话里提示用户。
-              const agentCfg = resolveAgentAccountOrUndefined(config);
+              const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
               const agentOk = Boolean(agentCfg);
               const alreadySent = current.agentMediaKeys.includes(mediaPath);
               logVerbose(
@@ -1358,7 +1456,7 @@ async function startAgentForStream(params: {
   // Timeout fallback final delivery (Agent DM): send once after the agent run completes.
   const finishedState = streamStore.getStream(streamId);
   if (finishedState?.fallbackMode === "timeout" && !finishedState.finalDeliveredAt) {
-    const agentCfg = resolveAgentAccountOrUndefined(config);
+    const agentCfg = resolveAgentAccountOrUndefined(config, account.accountId);
     if (!agentCfg) {
       // Agent not configured - group prompt already explains the situation.
       streamStore.updateStream(streamId, (s) => { s.finalDeliveredAt = Date.now(); });
@@ -1501,11 +1599,15 @@ export function registerWecomWebhookTarget(target: WecomWebhookTarget): () => vo
  * 注册 Agent 模式 Webhook Target
  */
 export function registerAgentWebhookTarget(target: AgentWebhookTarget): () => void {
-  const key = WEBHOOK_PATHS.AGENT;
-  agentTargets.set(key, target);
+  const key = normalizeWebhookPath(target.path);
+  const normalizedTarget = { ...target, path: key };
+  const existing = agentTargets.get(key) ?? [];
+  agentTargets.set(key, [...existing, normalizedTarget]);
   ensurePruneTimer();
   return () => {
-    agentTargets.delete(key);
+    const updated = (agentTargets.get(key) ?? []).filter((entry) => entry !== normalizedTarget);
+    if (updated.length > 0) agentTargets.set(key, updated);
+    else agentTargets.delete(key);
     checkPruneTimer();
   };
 }
@@ -1515,7 +1617,7 @@ export function registerAgentWebhookTarget(target: AgentWebhookTarget): () => vo
  * 
  * 处理来自企业微信的所有 Webhook 请求。
  * 职责：
- * 1. 路由分发：区分 Agent 模式 (`/wecom/agent`) 和 Bot 模式 (其他路径)。
+ * 1. 路由分发：按 Matrix/Legacy 路径分流 Bot 与 Agent 回调。
  * 2. 安全校验：验证企业微信签名 (Signature)。
  * 3. 消息解密：处理企业微信的加密包。
  * 4. 响应处理：
@@ -1539,27 +1641,170 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
     `[wecom] inbound(http): reqId=${reqId} path=${path} method=${req.method ?? "UNKNOWN"} remote=${remote} ua=${ua ? `"${ua}"` : "N/A"} contentLength=${cl || "N/A"} query={timestamp:${hasTimestamp},nonce:${hasNonce},echostr:${hasEchostr},msg_signature:${hasMsgSig},signature:${hasSignature}}`,
   );
 
-  // Agent 模式路由: /wecom/agent
-  if (path === WEBHOOK_PATHS.AGENT) {
-    const agentTarget = agentTargets.get(WEBHOOK_PATHS.AGENT);
-    if (agentTarget) {
-      const core = getWecomRuntime();
+  if (hasMatrixExplicitRoutesRegistered() && isLegacyWecomPath(path)) {
+    logRouteFailure({
+      reqId,
+      path,
+      method: req.method ?? "UNKNOWN",
+      reason: "wecom_matrix_path_required",
+      candidateAccountIds: [],
+    });
+    writeRouteFailure(
+      res,
+      "wecom_matrix_path_required",
+      "Matrix mode requires explicit account path. Use /wecom/bot/{accountId} or /wecom/agent/{accountId}.",
+    );
+    return true;
+  }
+
+  const isAgentPath = path === WEBHOOK_PATHS.AGENT || path.startsWith(`${WEBHOOK_PATHS.AGENT}/`);
+  if (isAgentPath) {
+    const targets = agentTargets.get(path) ?? [];
+    if (targets.length > 0) {
       const query = resolveQueryParams(req);
       const timestamp = query.get("timestamp") ?? "";
       const nonce = query.get("nonce") ?? "";
-      const hasSig = Boolean(query.get("msg_signature"));
+      const signature = resolveSignatureParam(query);
+      const hasSig = Boolean(signature);
       const remote = req.socket?.remoteAddress ?? "unknown";
-      agentTarget.runtime.log?.(
-        `[wecom] inbound(agent): reqId=${reqId} method=${req.method ?? "UNKNOWN"} remote=${remote} timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${hasSig ? "yes" : "no"}`,
+
+      if (req.method === "GET") {
+        const echostr = query.get("echostr") ?? "";
+        const signatureMatches = targets.filter((target) =>
+          verifyWecomSignature({
+            token: target.agent.token,
+            timestamp,
+            nonce,
+            encrypt: echostr,
+            signature,
+          }),
+        );
+        if (signatureMatches.length !== 1) {
+          const reason: RouteFailureReason =
+            signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+          const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+            (target) => target.agent.accountId,
+          );
+          logRouteFailure({
+            reqId,
+            path,
+            method: "GET",
+            reason,
+            candidateAccountIds: candidateIds,
+          });
+          writeRouteFailure(
+            res,
+            reason,
+            reason === "wecom_account_conflict"
+              ? "Agent callback account conflict: multiple accounts matched signature."
+              : "Agent callback account not found: signature verification failed.",
+          );
+          return true;
+        }
+        const selected = signatureMatches[0]!;
+        try {
+          const plain = decryptWecomEncrypted({
+            encodingAESKey: selected.agent.encodingAESKey,
+            receiveId: selected.agent.corpId,
+            encrypt: echostr,
+          });
+          res.statusCode = 200;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end(plain);
+          return true;
+        } catch {
+          res.statusCode = 400;
+          res.setHeader("Content-Type", "text/plain; charset=utf-8");
+          res.end(`decrypt failed - 解密失败，请检查 EncodingAESKey${ERROR_HELP}`);
+          return true;
+        }
+      }
+
+      if (req.method !== "POST") return false;
+
+      const rawBody = await readTextBody(req, LIMITS.MAX_REQUEST_BODY_SIZE);
+      if (!rawBody.ok) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(rawBody.error || "invalid payload");
+        return true;
+      }
+
+      let encrypted = "";
+      try {
+        encrypted = extractEncryptFromXml(rawBody.value);
+      } catch (err) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(`invalid xml - 缺少 Encrypt 字段${ERROR_HELP}`);
+        return true;
+      }
+
+      const signatureMatches = targets.filter((target) =>
+        verifyWecomSignature({
+          token: target.agent.token,
+          timestamp,
+          nonce,
+          encrypt: encrypted,
+          signature,
+        }),
+      );
+      if (signatureMatches.length !== 1) {
+        const reason: RouteFailureReason =
+          signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+        const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+          (target) => target.agent.accountId,
+        );
+        logRouteFailure({
+          reqId,
+          path,
+          method: "POST",
+          reason,
+          candidateAccountIds: candidateIds,
+        });
+        writeRouteFailure(
+          res,
+          reason,
+          reason === "wecom_account_conflict"
+            ? "Agent callback account conflict: multiple accounts matched signature."
+            : "Agent callback account not found: signature verification failed.",
+        );
+        return true;
+      }
+
+      const selected = signatureMatches[0]!;
+      try {
+        const plain = decryptWecomEncrypted({
+          encodingAESKey: selected.agent.encodingAESKey,
+          receiveId: selected.agent.corpId,
+          encrypt: encrypted,
+        });
+        const parsed = parseXml(plain);
+        const inboundAgentId = normalizeAgentIdValue(extractAgentId(parsed));
+        if (
+          inboundAgentId !== undefined &&
+          selected.agent.agentId !== undefined &&
+          inboundAgentId !== selected.agent.agentId
+        ) {
+          selected.runtime.error?.(
+            `[wecom] inbound(agent): reqId=${reqId} accountId=${selected.agent.accountId} agentId_mismatch expected=${selected.agent.agentId} actual=${inboundAgentId}`,
+          );
+        }
+      } catch {
+      }
+      const core = getWecomRuntime();
+      selected.runtime.log?.(
+        `[wecom] inbound(agent): reqId=${reqId} method=${req.method ?? "UNKNOWN"} remote=${remote} timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${hasSig ? "yes" : "no"} accountId=${selected.agent.accountId}`,
       );
       return handleAgentWebhook({
         req,
         res,
-        agent: agentTarget.agent,
-        config: agentTarget.config,
+        rawXml: rawBody.value,
+        agent: selected.agent,
+        config: selected.config,
         core,
-        log: agentTarget.runtime.log,
-        error: agentTarget.runtime.error,
+        log: selected.runtime.log,
+        error: selected.runtime.error,
       });
     }
     // 未注册 Agent，返回 404
@@ -1580,13 +1825,33 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
 
   if (req.method === "GET") {
     const echostr = query.get("echostr") ?? "";
-    const target = targets.find(c => c.account.token && verifyWecomSignature({ token: c.account.token, timestamp, nonce, encrypt: echostr, signature }));
-    if (!target || !target.account.encodingAESKey) {
-      res.statusCode = 401;
-      res.setHeader("Content-Type", "text/plain; charset=utf-8");
-      res.end(`unauthorized - Bot 签名验证失败，请检查 Token 配置${ERROR_HELP}`);
+    const signatureMatches = targets.filter((target) =>
+      target.account.token &&
+      verifyWecomSignature({ token: target.account.token, timestamp, nonce, encrypt: echostr, signature }),
+    );
+    if (signatureMatches.length !== 1) {
+      const reason: RouteFailureReason =
+        signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+      const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+        (target) => target.account.accountId,
+      );
+      logRouteFailure({
+        reqId,
+        path,
+        method: "GET",
+        reason,
+        candidateAccountIds: candidateIds,
+      });
+      writeRouteFailure(
+        res,
+        reason,
+        reason === "wecom_account_conflict"
+          ? "Bot callback account conflict: multiple accounts matched signature."
+          : "Bot callback account not found: signature verification failed.",
+      );
       return true;
     }
+    const target = signatureMatches[0]!;
     try {
       const plain = decryptWecomEncrypted({ encodingAESKey: target.account.encodingAESKey, receiveId: target.account.receiveId, encrypt: echostr });
       res.statusCode = 200;
@@ -1615,28 +1880,59 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
   console.log(
     `[wecom] inbound(bot): reqId=${reqId} rawJsonBytes=${Buffer.byteLength(JSON.stringify(record), "utf8")} hasEncrypt=${Boolean(encrypt)} encryptLen=${encrypt.length}`,
   );
-  const target = targets.find(c => c.account.token && verifyWecomSignature({ token: c.account.token, timestamp, nonce, encrypt, signature }));
-  if (!target || !target.account.configured || !target.account.encodingAESKey) {
-    res.statusCode = 401;
-    res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end(`unauthorized - Bot 签名验证失败${ERROR_HELP}`);
+  const signatureMatches = targets.filter((target) =>
+    target.account.token &&
+    verifyWecomSignature({ token: target.account.token, timestamp, nonce, encrypt, signature }),
+  );
+  if (signatureMatches.length !== 1) {
+    const reason: RouteFailureReason =
+      signatureMatches.length === 0 ? "wecom_account_not_found" : "wecom_account_conflict";
+    const candidateIds = (signatureMatches.length > 0 ? signatureMatches : targets).map(
+      (target) => target.account.accountId,
+    );
+    logRouteFailure({
+      reqId,
+      path,
+      method: "POST",
+      reason,
+      candidateAccountIds: candidateIds,
+    });
+    writeRouteFailure(
+      res,
+      reason,
+      reason === "wecom_account_conflict"
+        ? "Bot callback account conflict: multiple accounts matched signature."
+        : "Bot callback account not found: signature verification failed.",
+    );
     return true;
   }
 
-  // 选定 target 后，把 reqId 带入结构化日志，方便串联排查
-  logInfo(target, `inbound(bot): reqId=${reqId} selectedAccount=${target.account.accountId} path=${path}`);
-
-  let plain: string;
+  const target = signatureMatches[0]!;
+  let msg: WecomInboundMessage;
   try {
-    plain = decryptWecomEncrypted({ encodingAESKey: target.account.encodingAESKey, receiveId: target.account.receiveId, encrypt });
-  } catch (err) {
+    const plain = decryptWecomEncrypted({
+      encodingAESKey: target.account.encodingAESKey,
+      receiveId: target.account.receiveId,
+      encrypt,
+    });
+    msg = parseWecomPlainMessage(plain);
+  } catch {
     res.statusCode = 400;
     res.setHeader("Content-Type", "text/plain; charset=utf-8");
-    res.end(`decrypt failed - 解密失败${ERROR_HELP}`);
+    res.end(`decrypt failed - 解密失败，请检查 EncodingAESKey${ERROR_HELP}`);
     return true;
   }
+  const expected = resolveBotIdentitySet(target);
+  if (expected.size > 0) {
+    const inboundAibotId = String((msg as any).aibotid ?? "").trim();
+    if (!inboundAibotId || !expected.has(inboundAibotId)) {
+      target.runtime.error?.(
+        `[wecom] inbound(bot): reqId=${reqId} accountId=${target.account.accountId} aibotid_mismatch expected=${Array.from(expected).join(",")} actual=${inboundAibotId || "N/A"}`,
+      );
+    }
+  }
 
-  const msg = parseWecomPlainMessage(plain);
+  logInfo(target, `inbound(bot): reqId=${reqId} selectedAccount=${target.account.accountId} path=${path}`);
   const msgtype = String(msg.msgtype ?? "").toLowerCase();
   const proxyUrl = resolveWecomEgressProxyUrl(target.config);
 
