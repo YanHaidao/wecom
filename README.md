@@ -373,7 +373,7 @@ openclaw cron rm <jobId>
 
 微信交流群（扫码入群）：
 
-![企业微信交流群](https://cdn.jsdelivr.net/npm/@yanhaidao/wecom@latest/assets/link-me.jpg)
+![企业微信交流群](https://openclaw.cc/wechat-openclaw-cn-qr.jpg)
 
 维护者：YanHaidao（VX：YanHaidao）
 
