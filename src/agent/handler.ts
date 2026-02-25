@@ -560,9 +560,6 @@ async function processAgentMessage(params: {
                 error?.(`[wecom-agent] ${info.kind} reply error: ${String(err)}`);
             },
         },
-        replyOptions: {
-            disableBlockStreaming: true,
-        },
     });
 }
 
