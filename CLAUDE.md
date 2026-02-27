@@ -29,22 +29,24 @@ The plugin implements a unique dual-mode architecture:
 index.ts              # Plugin entry - registers channel and HTTP handlers
 src/
   channel.ts          # ChannelPlugin implementation, lifecycle management
-  monitor.ts          # Core webhook handler, message flow, stream state
+  monitor.ts          # Core webhook handler (~1800 lines). Orchestrates message
+                      # flow, stream state, queuing, and mode switching (Bot↔Agent)
   runtime.ts          # Runtime state singleton
   http.ts             # HTTP client with undici + proxy support
   crypto.ts           # AES-CBC encryption/decryption for webhooks
   media.ts            # Media file download/decryption
-  outbound.ts         # Outbound message adapter
-  target.ts           # Target resolution (user/party/tag/chat)
+  outbound.ts         # Outbound message adapter (OpenClaw → WeCom format)
+  target.ts           # Target resolution (user/party/tag/chat) for broadcasts
   dynamic-agent.ts    # Dynamic agent routing (per-user/per-group isolation)
+  onboarding.ts       # User onboarding flow (/new, /reset command handling)
   agent/
     api-client.ts     # WeCom API client with AccessToken caching
     handler.ts        # XML webhook handler for Agent mode
   config/
-    schema.ts         # Zod schemas for configuration
+    schema.ts         # Zod schemas for configuration validation
   monitor/
     state.ts          # StreamStore and ActiveReplyStore with TTL pruning
-  types/constants.ts  # API endpoints and limits
+  types/              # TypeScript type definitions
 ```
 
 ### Stream State Management
@@ -67,10 +69,10 @@ Agent mode uses automatic AccessToken caching (`src/agent/api-client.ts`):
 
 ### Testing
 
-This project uses **Vitest**. Tests extend from a base config at `../../vitest.config.ts`:
+This project uses **Vitest**. The project is typically located at `extensions/wecom` within the OpenClaw monorepo structure.
 
 ```bash
-# Run all tests
+# Run all tests (from project root)
 npx vitest --config vitest.config.ts
 
 # Run specific test file
@@ -81,19 +83,31 @@ npx vitest --config vitest.config.ts --testNamePattern="should encrypt"
 
 # Watch mode
 npx vitest --config vitest.config.ts --watch
+
+# If running from OpenClaw root with this project at extensions/wecom:
+npx vitest --config extensions/wecom/vitest.config.ts --root extensions/wecom
 ```
 
-Test files are located alongside source files with `.test.ts` suffix:
-- `src/crypto.test.ts`
-- `src/monitor.integration.test.ts`
-- `src/monitor/state.queue.test.ts`
-- etc.
+Test files use `.test.ts` suffix alongside source files:
+- `src/crypto.test.ts` - AES encryption/decryption round-trips
+- `src/media.test.ts` - Media download/decryption
+- `src/target.test.ts` - Target resolution (party/tag/user/group)
+- `src/outbound.test.ts` - Message formatting
+- `src/monitor.integration.test.ts` - Stream state transitions
+- `src/monitor/state.queue.test.ts` - Pending queue behavior
+- `src/monitor.active.test.ts` - Active reply handling
+- `src/monitor.webhook.test.ts` - Webhook handler logic
+- `src/shared/xml-parser.test.ts` - XML parsing utilities
 
 ### Type Checking
 
 ```bash
 npx tsc --noEmit
 ```
+
+### Linting/Formatting
+
+This project does not use ESLint or Prettier. Code style is maintained through TypeScript strict mode and manual review.
 
 ### Build
 
@@ -151,10 +165,10 @@ openclaw config set channels.wecom.dynamicAgents.adminUsers '["admin1","admin2"]
 ```
 
 **Generated Agent ID format**: `wecom-{type}-{peerId}`
-- DM: `wecom-dm-zhangsan`
-- Group: `wecom-group-wr123456`
+- DM: `wecom-dm-{userid}` - Private conversations
+- Group: `wecom-group-{chatid}` - Group conversations (e.g., `wecom-group-wr123456`)
 
-Dynamic agents are automatically added to `agents.list` in the config file.
+Dynamic agents are automatically registered to `agents.list` in the config file asynchronously. The main agent credentials are inherited unless overridden.
 
 ## Key Technical Details
 
@@ -192,6 +206,7 @@ openclaw config set channels.wecom.network.egressProxyUrl "http://proxy.company.
 - Integration tests mock WeCom API responses
 - Crypto tests verify AES encryption round-trips
 - Monitor tests cover stream state transitions and queue behavior
+- Message deduplication tests verify `msgid`-based duplicate prevention for both Bot and Agent modes
 
 ## Common Patterns
 

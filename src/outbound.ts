@@ -33,10 +33,11 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     // signal removed - not supported in current SDK
 
     const agent = resolveAgentConfigOrThrow(cfg);
-    const target = resolveWecomTarget(to);
-    if (!target) {
-      throw new Error("WeCom outbound requires a target (userid, partyid, tagid or chatid).");
+    const result = resolveWecomTarget(to);
+    if (!result.success || !result.target) {
+      throw new Error(result.error || "WeCom outbound requires a target (userid, partyid, tagid or chatid).");
     }
+    const target = result.target;
 
     // 体验优化：/new /reset 的“New session started”回执在 OpenClaw 核心里是英文固定文案，
     // 且通过 routeReply 走 wecom outbound（Agent 主动发送）。
@@ -71,8 +72,8 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     if (chatid) {
       throw new Error(
         `企业微信（WeCom）Agent 主动发送不支持向群 chatId 发送（chatId=${chatid}）。` +
-          `该路径在实际环境中经常失败（例如 86008：无权限访问该会话/会话由其他应用创建）。` +
-          `请改为发送给用户（userid / user:xxx），或由 Bot 模式在群内交付。`,
+        `该路径在实际环境中经常失败（例如 86008：无权限访问该会话/会话由其他应用创建）。` +
+        `请改为发送给用户（userid / user:xxx），或由 Bot 模式在群内交付。`,
       );
     }
     console.log(`[wecom-outbound] Sending text to target=${JSON.stringify(target)} (len=${outgoingText.length})`);
@@ -102,15 +103,16 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     // signal removed - not supported in current SDK
 
     const agent = resolveAgentConfigOrThrow(cfg);
-    const target = resolveWecomTarget(to);
-    if (!target) {
-      throw new Error("WeCom outbound requires a target (userid, partyid, tagid or chatid).");
+    const result = resolveWecomTarget(to);
+    if (!result.success || !result.target) {
+      throw new Error(result.error || "WeCom outbound requires a target (userid, partyid, tagid or chatid).");
     }
+    const target = result.target;
     if (target.chatid) {
       throw new Error(
         `企业微信（WeCom）Agent 主动发送不支持向群 chatId 发送（chatId=${target.chatid}）。` +
-          `该路径在实际环境中经常失败（例如 86008：无权限访问该会话/会话由其他应用创建）。` +
-          `请改为发送给用户（userid / user:xxx），或由 Bot 模式在群内交付。`,
+        `该路径在实际环境中经常失败（例如 86008：无权限访问该会话/会话由其他应用创建）。` +
+        `请改为发送给用户（userid / user:xxx），或由 Bot 模式在群内交付。`,
       );
     }
     if (!mediaUrl) {

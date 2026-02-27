@@ -5,7 +5,9 @@
       "Bash(./node_modules/.bin/tsc:*)",
       "Bash(npm install)",
       "Bash(npx vitest:*)",
-      "Bash(node --input-type=module -e:*)"
+      "Bash(node --input-type=module -e:*)",
+      "mcp__context7__resolve-library-id",
+      "WebSearch"
     ]
   }
 }
