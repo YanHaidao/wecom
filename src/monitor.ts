@@ -11,7 +11,7 @@ import type { WecomInboundMessage, WecomInboundQuote } from "./types.js";
 import { decryptWecomEncrypted, encryptWecomPlaintext, verifyWecomSignature, computeWecomMsgSignature } from "./crypto.js";
 import { getWecomRuntime } from "./runtime.js";
 import { decryptWecomMedia, decryptWecomMediaWithHttp } from "./media.js";
-import { WEBHOOK_PATHS } from "./types/constants.js";
+import { WEBHOOK_PATHS, LIMITS as TYPE_LIMITS } from "./types/constants.js";
 import { handleAgentWebhook } from "./agent/index.js";
 import { resolveWecomAccounts, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes } from "./config/index.js";
 import { wecomFetch } from "./http.js";
@@ -53,6 +53,7 @@ const pendingInbounds = new Map<string, PendingInbound>();
 
 const STREAM_MAX_BYTES = LIMITS.STREAM_MAX_BYTES;
 const STREAM_MAX_DM_BYTES = 200_000;
+const TEXT_MAX_BYTES = TYPE_LIMITS.TEXT_MAX_BYTES;
 const BOT_WINDOW_MS = 6 * 60 * 1000;
 const BOT_SWITCH_MARGIN_MS = 30 * 1000;
 // REQUEST_TIMEOUT_MS is available in LIMITS but defined locally in other functions, we can leave it or use LIMITS.REQUEST_TIMEOUT_MS
@@ -253,7 +254,7 @@ function buildStreamTextPlaceholderReply(params: { streamId: string; content: st
 }
 
 function buildStreamReplyFromState(state: StreamState): { msgtype: "stream"; stream: { id: string; finish: boolean; content: string } } {
-  const content = truncateUtf8Bytes(state.content, STREAM_MAX_BYTES);
+  const content = truncateUtf8Bytes(state.content, TEXT_MAX_BYTES);
   // Images handled? The original code had image logic.
   // Ensure we return message item if images exist
   return {
@@ -324,7 +325,7 @@ async function sendBotFallbackPromptNow(params: { streamId: string; text: string
       stream: {
         id: params.streamId,
         finish: true,
-        content: truncateUtf8Bytes(params.text, STREAM_MAX_BYTES) || "1",
+        content: truncateUtf8Bytes(params.text, TEXT_MAX_BYTES) || "1",
       },
     };
     const res = await wecomFetch(
@@ -348,12 +349,10 @@ async function sendAgentDmText(params: {
   text: string;
   core: PluginRuntime;
 }): Promise<void> {
-  const chunks = params.core.channel.text.chunkText(params.text, 20480);
-  for (const chunk of chunks) {
-    const trimmed = chunk.trim();
-    if (!trimmed) continue;
-    await sendAgentText({ agent: params.agent, toUser: params.userId, text: trimmed });
-  }
+  const trimmed = params.text.trim();
+  if (!trimmed) return;
+  // 直接传递完整文本给 sendAgentText，由它统一按 2KB 分段并生成正确的 [N/M] 标记
+  await sendAgentText({ agent: params.agent, toUser: params.userId, text: trimmed });
 }
 
 async function sendAgentDmMedia(params: {
@@ -943,7 +942,7 @@ async function startAgentForStream(params: {
     route.agentId = targetAgentId;
     route.sessionKey = `agent:${targetAgentId}:${chatType === "group" ? "group" : "dm"}:${chatId}`;
     // 异步添加到 agents.list（不阻塞）
-    ensureDynamicAgentListed(targetAgentId, core).catch(() => {});
+    ensureDynamicAgentListed(targetAgentId, core).catch(() => { });
     logVerbose(target, `dynamic agent routing: ${targetAgentId}, sessionKey=${route.sessionKey}`);
   }
   // ===== 动态 Agent 路由注入结束 =====
@@ -1327,7 +1326,7 @@ async function startAgentForStream(params: {
           : text.trim();
 
         streamStore.updateStream(streamId, (s) => {
-          s.content = truncateUtf8Bytes(nextText, STREAM_MAX_BYTES);
+          s.content = truncateUtf8Bytes(nextText, TEXT_MAX_BYTES);
           if (current.images?.length) s.images = current.images; // ensure images are saved
         });
         target.statusSink?.({ lastOutboundAt: Date.now() });
@@ -1350,6 +1349,38 @@ async function startAgentForStream(params: {
         s.content = ackText;
         s.finished = true;
       });
+    }
+  }
+
+  // 内容溢出兜底 (Content Overflow → Agent DM)：
+  // 当 Bot 流式内容超过 TEXT_MAX_BYTES (2048 字节) 限制时, stream 只能展示截断后的尾部内容。
+  // 此时通过 Agent 私信将完整内容发送给触发者, 保证用户能收到完整回复。
+  // ⚠️ 必须在 markFinished 之前执行：markFinished 会设 finish=true，Bot 拿到后就不再轮询了。
+  {
+    const preState = streamStore.getStream(streamId);
+    if (preState && !preState.fallbackMode && !preState.finalDeliveredAt) {
+      const dmText = (preState.dmContent ?? "").trim();
+      const dmBytes = Buffer.byteLength(dmText, "utf8");
+      if (dmBytes > TEXT_MAX_BYTES && preState.userId) {
+        const agentCfg = resolveAgentAccountOrUndefined(config);
+        if (agentCfg) {
+          try {
+            logVerbose(target, `fallback(overflow): 内容超过 ${TEXT_MAX_BYTES} 字节 (${dmBytes}B), 通过 Agent 私信发送完整内容 user=${preState.userId}`);
+            await sendAgentDmText({ agent: agentCfg, userId: preState.userId, text: dmText, core });
+            logVerbose(target, `fallback(overflow): Agent 私信发送完成 user=${preState.userId}`);
+          } catch (err) {
+            target.runtime.error?.(`wecom agent dm text failed (overflow): ${String(err)}`);
+          }
+          const overflowNotice = "\n\n---\n📩 内容较长，完整回复已通过应用私信发送给你。";
+          streamStore.updateStream(streamId, (s) => {
+            s.finalDeliveredAt = Date.now();
+            // 在现有截断内容末尾追加提示，而非完全替换（WeCom 客户端可能无法正确渲染突然缩短的内容）
+            s.content = truncateUtf8Bytes(s.content + overflowNotice, TEXT_MAX_BYTES);
+            // 完全替换为提示语，不保留截断内容（避免 Bot 和 Agent DM 重复展示）
+            s.content = "📩 内容较长，完整回复已通过应用私信发送给你。";
+          });
+        }
+      }
     }
   }
 

@@ -106,3 +106,7 @@ vitest.temp.config.ts
 
 # Antigravity Rules
 .agent/
+src/utils/text-splitter.test.ts
+
+# Coding Plan
+coding_plan/

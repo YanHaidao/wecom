@@ -8,6 +8,7 @@ import { API_ENDPOINTS, LIMITS } from "../types/constants.js";
 import type { ResolvedAgentAccount } from "../types/index.js";
 import { readResponseBodyAsBuffer, wecomFetch } from "../http.js";
 import { resolveWecomEgressProxyUrlFromNetwork } from "../config/index.js";
+import { splitTextByBytes } from "../utils/text-splitter.js";
 
 /**
  * **TokenCache (AccessToken 缓存结构)**
@@ -74,10 +75,14 @@ export async function getAccessToken(agent: ResolvedAgentAccount): Promise<strin
     return cache.refreshPromise;
 }
 
+/** 分段发送间隔（毫秒），避免触发企业微信 API 频率限制 */
+const CHUNK_SEND_DELAY_MS = 200;
+
 /**
- * **sendText (发送文本消息)**
+ * **sendText (发送文本消息 — 自动分段)**
  * 
  * 调用 `message/send` (Agent) 或 `appchat/send` (群聊) 发送文本。
+ * 当文本超过企业微信 2048 字节限制时，自动按段落/换行边界智能切分为多条消息依次发送。
  * 
  * @param params.agent 发送方 Agent
  * @param params.toUser 接收用户 ID (单聊可选，可与 toParty/toTag 同时使用)
@@ -87,6 +92,38 @@ export async function getAccessToken(agent: ResolvedAgentAccount): Promise<strin
  * @param params.text 消息内容
  */
 export async function sendText(params: {
+    agent: ResolvedAgentAccount;
+    toUser?: string;
+    toParty?: string;
+    toTag?: string;
+    chatId?: string;
+    text: string;
+}): Promise<void> {
+    const { agent, toUser, toParty, toTag, chatId, text } = params;
+
+    // 按 TEXT_MAX_BYTES 分段（含 [N/M] 标记）
+    const chunks = splitTextByBytes(text, LIMITS.TEXT_MAX_BYTES, { addMarkers: true });
+
+    for (let i = 0; i < chunks.length; i++) {
+        await sendSingleText({
+            agent, toUser, toParty, toTag, chatId,
+            text: chunks[i]!,
+        });
+
+        // 段间延迟，避免触发频率限制
+        if (i < chunks.length - 1) {
+            await new Promise(r => setTimeout(r, CHUNK_SEND_DELAY_MS));
+        }
+    }
+}
+
+/**
+ * **sendSingleText (发送单条文本)**
+ * 
+ * 内部函数：发送一条不超过 2048 字节的文本消息。
+ * 由 `sendText` 在分段后逐条调用。
+ */
+async function sendSingleText(params: {
     agent: ResolvedAgentAccount;
     toUser?: string;
     toParty?: string;
