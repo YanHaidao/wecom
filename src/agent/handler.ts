@@ -440,7 +440,7 @@ async function processAgentMessage(params: {
         cfg: config,
         channel: "wecom",
         accountId: agent.accountId,
-        peer: { kind: isGroup ? "group" : "dm", id: peerId },
+        peer: { kind: isGroup ? "group" : "direct", id: peerId },
     });
 
     // ===== 动态 Agent 路由注入 =====

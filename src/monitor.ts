@@ -925,7 +925,7 @@ async function startAgentForStream(params: {
     cfg: config,
     channel: "wecom",
     accountId: account.accountId,
-    peer: { kind: chatType === "group" ? "group" : "dm", id: chatId },
+    peer: { kind: chatType === "group" ? "group" : "direct", id: chatId },
   });
 
   // ===== 动态 Agent 路由注入 =====
