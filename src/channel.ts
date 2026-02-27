@@ -235,6 +235,13 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
         webhookPath: botConfigured ? "/wecom/bot" : "/wecom/agent",
         lastStartAt: Date.now(),
       });
+
+      // 创建一个 Promise，只在 stop() 被调用时 resolve
+      let stopResolve: () => void;
+      const stopPromise = new Promise<void>((resolve) => {
+        stopResolve = resolve;
+      });
+
       return {
         stop: () => {
           for (const unregister of unregisters) {
@@ -245,7 +252,10 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
             running: false,
             lastStopAt: Date.now(),
           });
+          stopResolve();
         },
+        // 返回一个保持 pending 的 Promise，直到 stop() 被调用
+        then: stopPromise.then.bind(stopPromise),
       };
     },
     stopAccount: async (ctx) => {
