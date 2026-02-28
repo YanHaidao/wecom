@@ -5,7 +5,7 @@
   "description": "OpenClaw WeCom (WeChat Work) intelligent bot channel plugin",
   "repository": {
     "type": "git",
-    "url": "https://github.com/YanHaidao/wecom"
+    "url": "git+https://github.com/YanHaidao/wecom.git"
   },
   "publishConfig": {
     "access": "public"

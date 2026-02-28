@@ -8,10 +8,11 @@ on:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # 🌟 必须与 npm 设置的 Environment 一致
     environment: release
     permissions:
-      contents: write
-      id-token: write
+      contents: write # 发布 Release
+      id-token: write # 获取 OIDC 身份令牌
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -27,9 +28,11 @@ jobs:
       - name: Build Plugin
         run: npm run build --if-present
 
+      # 🚀 自动发布到 npm (使用 OIDC 自动授权，无需 Token)
       - name: Publish to npm
         run: npm publish --provenance --access public
 
+      # 自动同步发布 GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
