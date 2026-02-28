@@ -30,15 +30,33 @@ export type WecomNetworkConfig = {
     egressProxyUrl?: string;
 };
 
+/** 路由行为配置 */
+export type WecomRoutingConfig = {
+    /**
+     * 当路由未命中 bindings（matchedBy=default）时是否拒绝继续处理。
+     * - true: fail-closed（推荐于多账号）
+     * - false: 允许回退默认 agent（历史兼容）
+     */
+    failClosedOnDefaultRoute?: boolean;
+};
+
 /**
  * Bot 模式配置 (智能体)
  * 用于接收 JSON 格式回调 + 流式回复
  */
 export type WecomBotConfig = {
+    /** 智能机器人 ID（用于 Matrix 模式二次身份确认） */
+    aibotid?: string;
     /** 回调 Token (企微后台生成) */
     token: string;
     /** 回调加密密钥 (企微后台生成) */
     encodingAESKey: string;
+    /**
+     * BotId 列表（可选，用于审计与告警）。
+     * - 回调路由优先由 URL + 签名决定；botIds 不参与强制拦截。
+     * - 当解密后的 aibotid 不在 botIds 中时，仅记录告警日志。
+     */
+    botIds?: string[];
     /** 接收者 ID (可选，用于解密校验) */
     receiveId?: string;
     /** 流式消息占位符 */
@@ -58,8 +76,8 @@ export type WecomAgentConfig = {
     corpId: string;
     /** 应用 Secret */
     corpSecret: string;
-    /** 应用 ID */
-    agentId: number | string;
+    /** 应用 ID（可选；不填时可接收回调，但主动发送需具备该字段） */
+    agentId?: number | string;
     /** 回调 Token (企微后台「设置API接收」) */
     token: string;
     /** 回调加密密钥 (企微后台「设置API接收」) */
@@ -93,10 +111,27 @@ export type WecomConfig = {
     bot?: WecomBotConfig;
     /** Agent 模式配置 (自建应用) */
     agent?: WecomAgentConfig;
+    /**
+     * 多账号配置（每个账号可包含 bot + agent，作为一组）。
+     * accountId 用于与 OpenClaw `bindings[].match.accountId` 对齐，从而把不同 WeCom 账号路由到不同 OpenClaw agent。
+     */
+    accounts?: Record<string, WecomAccountConfig>;
+    /** 默认账号（可选） */
+    defaultAccount?: string;
     /** 媒体处理配置 */
     media?: WecomMediaConfig;
     /** 网络配置 */
     network?: WecomNetworkConfig;
+    /** 路由配置 */
+    routing?: WecomRoutingConfig;
     /** 动态 Agent 配置 */
     dynamicAgents?: WecomDynamicAgentsConfig;
+};
+
+/** Matrix 账号条目 */
+export type WecomAccountConfig = {
+    enabled?: boolean;
+    name?: string;
+    bot?: WecomBotConfig;
+    agent?: WecomAgentConfig;
 };

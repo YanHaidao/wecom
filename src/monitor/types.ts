@@ -1,7 +1,7 @@
 
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 import type { ResolvedBotAccount } from "../types/index.js";
-import type { WecomInboundMessage } from "../types.js";
+import type { WecomBotInboundMessage as WecomInboundMessage } from "../types/index.js";
 
 /**
  * **WecomRuntimeEnv (运行时环境)**

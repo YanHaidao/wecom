@@ -7,9 +7,11 @@ export * from "./constants.js";
 
 // 配置类型
 export type {
+    WecomAccountConfig,
     WecomDmConfig,
     WecomMediaConfig,
     WecomNetworkConfig,
+    WecomRoutingConfig,
     WecomBotConfig,
     WecomAgentConfig,
     WecomConfig,
@@ -17,6 +19,7 @@ export type {
 
 // 账号类型
 export type {
+    ResolvedWecomAccount,
     ResolvedBotAccount,
     ResolvedAgentAccount,
     ResolvedMode,

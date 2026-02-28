@@ -19,6 +19,38 @@ describe("wecomOutbound", () => {
     ).rejects.toThrow(/Agent mode/i);
   });
 
+  it("throws explicit error when outbound accountId does not exist", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          defaultAccount: "acct-a",
+          accounts: {
+            "acct-a": {
+              enabled: true,
+              agent: {
+                corpId: "corp-a",
+                corpSecret: "secret-a",
+                agentId: 10001,
+                token: "token-a",
+                encodingAESKey: "aes-a",
+              },
+            },
+          },
+        },
+      },
+    };
+    await expect(
+      wecomOutbound.sendText({
+        cfg,
+        accountId: "acct-missing",
+        to: "user:zhangsan",
+        text: "hello",
+      } as any),
+    ).rejects.toThrow(/account "acct-missing" not found/i);
+  });
+
   it("routes sendText to agent chatId/userid", async () => {
     const { wecomOutbound } = await import("./outbound.js");
     const api = await import("./agent/api-client.js");
@@ -139,5 +171,103 @@ describe("wecomOutbound", () => {
     );
 
     now.mockRestore();
+  });
+
+  it("uses account-scoped agent config in matrix mode", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const api = await import("./agent/api-client.js");
+    (api.sendText as any).mockResolvedValue(undefined);
+    (api.sendText as any).mockClear();
+
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          defaultAccount: "acct-a",
+          accounts: {
+            "acct-a": {
+              enabled: true,
+              agent: {
+                corpId: "corp-a",
+                corpSecret: "secret-a",
+                agentId: 10001,
+                token: "token-a",
+                encodingAESKey: "aes-a",
+              },
+            },
+            "acct-b": {
+              enabled: true,
+              agent: {
+                corpId: "corp-b",
+                corpSecret: "secret-b",
+                agentId: 10002,
+                token: "token-b",
+                encodingAESKey: "aes-b",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await wecomOutbound.sendText({
+      cfg,
+      accountId: "acct-b",
+      to: "user:lisi",
+      text: "hello b",
+    } as any);
+    expect(api.sendText).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toUser: "lisi",
+        agent: expect.objectContaining({
+          accountId: "acct-b",
+          agentId: 10002,
+          corpId: "corp-b",
+        }),
+      }),
+    );
+  });
+
+  it("rejects outbound when target account has matrix conflict", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          defaultAccount: "acct-a",
+          accounts: {
+            "acct-a": {
+              enabled: true,
+              agent: {
+                corpId: "corp-shared",
+                corpSecret: "secret-a",
+                agentId: 10001,
+                token: "token-a",
+                encodingAESKey: "aes-a",
+              },
+            },
+            "acct-b": {
+              enabled: true,
+              agent: {
+                corpId: "corp-shared",
+                corpSecret: "secret-b",
+                agentId: 10001,
+                token: "token-b",
+                encodingAESKey: "aes-b",
+              },
+            },
+          },
+        },
+      },
+    };
+
+    await expect(
+      wecomOutbound.sendText({
+        cfg,
+        accountId: "acct-b",
+        to: "user:lisi",
+        text: "hello",
+      } as any),
+    ).rejects.toThrow(/duplicate wecom agent identity/i);
   });
 });

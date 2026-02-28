@@ -45,6 +45,7 @@ function createMockResponse(): ServerResponse {
 
 describe("Monitor Active Features", () => {
     let capturedDeliver: ((payload: { text: string }) => Promise<void>) | undefined;
+    let unregisterTarget: (() => void) | undefined;
     let mockCore: any;
     let msgSeq = 0;
     let senderUserId = "";
@@ -109,7 +110,7 @@ describe("Monitor Active Features", () => {
                         return;
                     }
                 },
-                routing: { resolveAgentRoute: () => ({ agentId: "1", sessionKey: "1", accountId: "1" }) },
+                routing: { resolveAgentRoute: () => ({ agentId: "1", sessionKey: "1", accountId: "default" }) },
                 session: {
                     resolveStorePath: () => "",
                     readSessionUpdatedAt: () => 0,
@@ -121,8 +122,8 @@ describe("Monitor Active Features", () => {
 
         vi.spyOn(runtime, "getWecomRuntime").mockReturnValue(mockCore);
 
-        registerWecomWebhookTarget({
-            account: { accountId: "1", enabled: true, configured: true, token: "T", encodingAESKey: validKey, receiveId: "R", config: {} as any },
+        unregisterTarget = registerWecomWebhookTarget({
+            account: { accountId: "default", enabled: true, configured: true, token: "T", encodingAESKey: validKey, receiveId: "R", config: {} as any },
             config: {
                 channels: {
                     wecom: {
@@ -144,6 +145,8 @@ describe("Monitor Active Features", () => {
     });
 
     afterEach(() => {
+        unregisterTarget?.();
+        unregisterTarget = undefined;
         vi.useRealTimers();
     });
 

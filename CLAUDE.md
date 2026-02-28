@@ -228,7 +228,7 @@ streamStore.updateStream(streamId, (state) => {
 - `undici`: HTTP client with proxy support
 - `fast-xml-parser`: XML parsing for Agent callbacks
 - `zod`: Configuration validation
-- `openclaw`: Peer dependency (>=2026.1.26)
+- `openclaw`: Peer dependency (>=2026.2.24)
 
 ## WeCom API Endpoints Used
 
