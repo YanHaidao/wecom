@@ -3,13 +3,15 @@ name: Release & Publish
 on:
   push:
     tags:
-      - 'v*' # 当推送以 v 开头的标签时触发 (如 v2.2.28)
+      - 'v*'
 
 jobs:
   publish:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
-      contents: write # 授予创建 Release 的权限
+      contents: write
+      id-token: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -26,18 +28,12 @@ jobs:
       - name: Build Plugin
         run: npm run build --if-present
 
-      # 1. 自动发布到 npmjs.org
       - name: Publish to npm
-        run: npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --provenance --access public
 
-      # 2. 自动同步发布 GitHub Release
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          # 自动读取 extensions/wecom/changelog/ 中的对应日志
-          # 如果标签是 v2.2.28，则读取 changelog/v2.2.28.md
           body_path: changelog/${{ github.ref_name }}.md
           draft: false
           prerelease: false
