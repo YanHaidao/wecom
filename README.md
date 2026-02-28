@@ -473,7 +473,7 @@ Agent 输出 `{"template_card": ...}` 时自动渲染为交互卡片：
 
 微信交流群（扫码入群）：
 
-![企业微信交流群](https://cdn.jsdelivr.net/npm/@yanhaidao/wecom@latest/assets/link-me.jpg)
+![企业微信交流群](https://openclaw.cc/wechat-openclaw-cn-qr.jpg)
 
 维护者：YanHaidao（VX：YanHaidao）
 
