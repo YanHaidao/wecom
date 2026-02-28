@@ -20,7 +20,20 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          # npm Trusted Publishing (OIDC) requires npm >=11.5.1.
+          # Use Node 24 to get modern npm in hosted runners.
+          node-version: '24'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Show runtime versions
+        run: |
+          node -v
+          npm -v
+
+      - name: Ensure npm trusted publishing support
+        run: |
+          npm i -g npm@^11.5.1
+          npm -v
 
       - name: Install Dependencies
         run: npm install --legacy-peer-deps || npm install
@@ -30,7 +43,7 @@ jobs:
 
       # 🚀 自动发布到 npm (使用 OIDC 自动授权，无需 Token)
       - name: Publish to npm
-        run: npm publish --provenance --access public
+        run: npm publish --access public
 
       # 自动同步发布 GitHub Release
       - name: Create GitHub Release
