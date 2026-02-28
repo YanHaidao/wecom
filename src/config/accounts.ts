@@ -18,6 +18,13 @@ import type {
 
 export const DEFAULT_ACCOUNT_ID = "default";
 
+export type WecomAccountConflict = {
+    type: "duplicate_bot_token" | "duplicate_bot_aibotid" | "duplicate_agent_id";
+    accountId: string;
+    ownerAccountId: string;
+    message: string;
+};
+
 /**
  * 检测配置中启用的模式
  */
@@ -143,6 +150,104 @@ function resolveLegacyAccounts(wecom: WecomConfig): Record<string, ResolvedWecom
     return { [DEFAULT_ACCOUNT_ID]: account };
 }
 
+function normalizeDuplicateKey(value: string): string {
+    return value.trim().toLowerCase();
+}
+
+function formatBotTokenConflict(params: { accountId: string; ownerAccountId: string }): WecomAccountConflict {
+    return {
+        type: "duplicate_bot_token",
+        accountId: params.accountId,
+        ownerAccountId: params.ownerAccountId,
+        message:
+            `Duplicate WeCom bot token: account "${params.accountId}" shares a token with account "${params.ownerAccountId}". ` +
+            "Keep one owner account per bot token.",
+    };
+}
+
+function formatBotAibotidConflict(params: { accountId: string; ownerAccountId: string }): WecomAccountConflict {
+    return {
+        type: "duplicate_bot_aibotid",
+        accountId: params.accountId,
+        ownerAccountId: params.ownerAccountId,
+        message:
+            `Duplicate WeCom bot aibotid: account "${params.accountId}" shares aibotid with account "${params.ownerAccountId}". ` +
+            "Keep one owner account per aibotid.",
+    };
+}
+
+function formatAgentIdConflict(params: { accountId: string; ownerAccountId: string; corpId: string; agentId: number }): WecomAccountConflict {
+    return {
+        type: "duplicate_agent_id",
+        accountId: params.accountId,
+        ownerAccountId: params.ownerAccountId,
+        message:
+            `Duplicate WeCom agent identity: account "${params.accountId}" shares corpId/agentId (${params.corpId}/${params.agentId}) with account "${params.ownerAccountId}". ` +
+            "Keep one owner account per corpId/agentId pair.",
+    };
+}
+
+function collectWecomAccountConflicts(cfg: OpenClawConfig): Map<string, WecomAccountConflict> {
+    const resolved = resolveWecomAccounts(cfg);
+    const conflicts = new Map<string, WecomAccountConflict>();
+    const botTokenOwners = new Map<string, string>();
+    const botAibotidOwners = new Map<string, string>();
+    const agentOwners = new Map<string, string>();
+
+    const accountIds = Object.keys(resolved.accounts).sort((a, b) => a.localeCompare(b));
+    for (const accountId of accountIds) {
+        const account = resolved.accounts[accountId];
+        if (!account || account.enabled === false) {
+            continue;
+        }
+        const bot = account.bot;
+        const agent = account.agent;
+
+        const botToken = bot?.token?.trim();
+        if (botToken) {
+            const key = normalizeDuplicateKey(botToken);
+            const owner = botTokenOwners.get(key);
+            if (owner && owner !== accountId) {
+                conflicts.set(accountId, formatBotTokenConflict({ accountId, ownerAccountId: owner }));
+            } else {
+                botTokenOwners.set(key, accountId);
+            }
+        }
+
+        const botAibotid = bot?.config.aibotid?.trim();
+        if (botAibotid) {
+            const key = normalizeDuplicateKey(botAibotid);
+            const owner = botAibotidOwners.get(key);
+            if (owner && owner !== accountId) {
+                conflicts.set(accountId, formatBotAibotidConflict({ accountId, ownerAccountId: owner }));
+            } else {
+                botAibotidOwners.set(key, accountId);
+            }
+        }
+
+        const corpId = agent?.corpId?.trim();
+        const agentId = agent?.agentId;
+        if (corpId && typeof agentId === "number" && Number.isFinite(agentId)) {
+            const key = `${normalizeDuplicateKey(corpId)}:${agentId}`;
+            const owner = agentOwners.get(key);
+            if (owner && owner !== accountId) {
+                conflicts.set(accountId, formatAgentIdConflict({ accountId, ownerAccountId: owner, corpId, agentId }));
+            } else {
+                agentOwners.set(key, accountId);
+            }
+        }
+    }
+
+    return conflicts;
+}
+
+export function resolveWecomAccountConflict(params: {
+    cfg: OpenClawConfig;
+    accountId: string;
+}): WecomAccountConflict | undefined {
+    return collectWecomAccountConflicts(params.cfg).get(params.accountId);
+}
+
 export function listWecomAccountIds(cfg: OpenClawConfig): string[] {
     const wecom = cfg.channels?.wecom as WecomConfig | undefined;
     const mode = detectMode(wecom);
@@ -171,10 +276,19 @@ export function resolveWecomAccount(params: {
     const resolved = resolveWecomAccounts(params.cfg);
     const fallbackId = resolved.defaultAccountId;
     const requestedId = params.accountId?.trim();
-    const accountId = requestedId || fallbackId;
+    if (requestedId) {
+        return (
+            resolved.accounts[requestedId] ??
+            toResolvedAccount({
+                accountId: requestedId,
+                enabled: false,
+                config: {},
+            })
+        );
+    }
     return (
-        resolved.accounts[accountId] ??
         resolved.accounts[fallbackId] ??
+        resolved.accounts[DEFAULT_ACCOUNT_ID] ??
         toResolvedAccount({
             accountId: fallbackId,
             enabled: false,

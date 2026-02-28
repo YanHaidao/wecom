@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 
-import type { WecomInboundMessage } from "../types.js";
+import type { WecomBotInboundMessage as WecomInboundMessage } from "../types/index.js";
 import type { WecomWebhookTarget } from "./types.js";
 import { StreamStore } from "./state.js";
 

@@ -1,7 +1,7 @@
 import type { ChannelOutboundAdapter, ChannelOutboundContext } from "openclaw/plugin-sdk";
 
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
-import { resolveWecomAccount } from "./config/index.js";
+import { resolveWecomAccount, resolveWecomAccountConflict, resolveWecomAccounts } from "./config/index.js";
 import { getWecomRuntime } from "./runtime.js";
 
 import { resolveWecomTarget } from "./target.js";
@@ -10,6 +10,24 @@ function resolveAgentConfigOrThrow(params: {
   cfg: ChannelOutboundContext["cfg"];
   accountId?: string | null;
 }) {
+  const resolvedAccounts = resolveWecomAccounts(params.cfg);
+  const conflictAccountId = params.accountId?.trim() || resolvedAccounts.defaultAccountId;
+  const conflict = resolveWecomAccountConflict({
+    cfg: params.cfg,
+    accountId: conflictAccountId,
+  });
+  if (conflict) {
+    throw new Error(conflict.message);
+  }
+
+  const requestedAccountId = params.accountId?.trim();
+  if (requestedAccountId) {
+    if (!resolvedAccounts.accounts[requestedAccountId]) {
+      throw new Error(
+        `WeCom outbound account "${requestedAccountId}" not found. Configure channels.wecom.accounts.${requestedAccountId} or use an existing accountId.`,
+      );
+    }
+  }
   const account = resolveWecomAccount({
     cfg: params.cfg,
     accountId: params.accountId,

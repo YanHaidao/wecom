@@ -110,7 +110,7 @@ describe("Monitor Active Features", () => {
                         return;
                     }
                 },
-                routing: { resolveAgentRoute: () => ({ agentId: "1", sessionKey: "1", accountId: "1" }) },
+                routing: { resolveAgentRoute: () => ({ agentId: "1", sessionKey: "1", accountId: "default" }) },
                 session: {
                     resolveStorePath: () => "",
                     readSessionUpdatedAt: () => 0,
@@ -123,7 +123,7 @@ describe("Monitor Active Features", () => {
         vi.spyOn(runtime, "getWecomRuntime").mockReturnValue(mockCore);
 
         unregisterTarget = registerWecomWebhookTarget({
-            account: { accountId: "1", enabled: true, configured: true, token: "T", encodingAESKey: validKey, receiveId: "R", config: {} as any },
+            account: { accountId: "default", enabled: true, configured: true, token: "T", encodingAESKey: validKey, receiveId: "R", config: {} as any },
             config: {
                 channels: {
                     wecom: {

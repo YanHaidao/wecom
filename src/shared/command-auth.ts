@@ -1,6 +1,8 @@
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
-import type { WecomAccountConfig } from "../types.js";
+import type { WecomAgentConfig, WecomBotConfig } from "../types/index.js";
+
+type WecomCommandAuthAccountConfig = Pick<WecomBotConfig, "dm"> | Pick<WecomAgentConfig, "dm">;
 
 function normalizeWecomAllowFromEntry(raw: string): string {
   return raw
@@ -22,7 +24,7 @@ function isWecomSenderAllowed(senderUserId: string, allowFrom: string[]): boolea
 export async function resolveWecomCommandAuthorization(params: {
   core: PluginRuntime;
   cfg: OpenClawConfig;
-  accountConfig: WecomAccountConfig;
+  accountConfig: WecomCommandAuthAccountConfig;
   rawBody: string;
   senderUserId: string;
 }): Promise<{

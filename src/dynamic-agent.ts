@@ -29,23 +29,23 @@ export function getDynamicAgentConfig(config: OpenClawConfig): DynamicAgentConfi
     };
 }
 
+function sanitizeDynamicIdPart(value: string): string {
+    return String(value)
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, "_");
+}
+
 /**
  * **generateAgentId (生成动态 Agent ID)**
  *
- * 根据聊天类型和对端 ID 生成确定性的 Agent ID。
- * 格式: wecom-{type}-{sanitizedPeerId}
- * - type: dm | group
- * - sanitizedPeerId: 小写，非字母数字下划线横线替换为下划线
- *
- * @example
- * generateAgentId("dm", "ZhangSan") // "wecom-dm-zhangsan"
- * generateAgentId("group", "wr123456") // "wecom-group-wr123456"
+ * 根据账号 + 聊天类型 + 对端 ID 生成确定性的 Agent ID，避免多账号串会话。
+ * 格式: wecom-{accountId}-{type}-{sanitizedPeerId}
  */
-export function generateAgentId(chatType: "dm" | "group", peerId: string): string {
-    const sanitized = String(peerId)
-        .toLowerCase()
-        .replace(/[^a-z0-9_-]/g, "_");
-    return `wecom-${chatType}-${sanitized}`;
+export function generateAgentId(chatType: "dm" | "group", peerId: string, accountId?: string): string {
+    const sanitizedPeer = sanitizeDynamicIdPart(peerId) || "unknown";
+    const sanitizedAccountId = sanitizeDynamicIdPart(accountId ?? "default") || "default";
+    return `wecom-${sanitizedAccountId}-${chatType}-${sanitizedPeer}`;
 }
 
 /**

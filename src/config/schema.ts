@@ -59,6 +59,16 @@ const networkSchema = z.object({
 }).optional();
 
 /**
+ * **routingSchema (路由策略配置)**
+ *
+ * 控制未命中 bindings 时的回退行为。
+ * @property failClosedOnDefaultRoute - true=拒绝 default 回退，false=允许回退默认 agent
+ */
+const routingSchema = z.object({
+    failClosedOnDefaultRoute: z.boolean().optional(),
+}).optional();
+
+/**
  * **botSchema (Bot 模式配置)**
  * 
  * 用于配置企业微信内部机器人 (Webhook 模式)。
@@ -131,10 +141,11 @@ export const WecomConfigSchema = bindToJsonSchema(z.object({
     enabled: z.boolean().optional(),
     bot: botSchema,
     agent: agentSchema,
-    accounts: z.record(accountSchema).optional(),
+    accounts: z.record(z.string(), accountSchema).optional(),
     defaultAccount: z.string().optional(),
     media: mediaSchema,
     network: networkSchema,
+    routing: routingSchema,
     dynamicAgents: dynamicAgentsSchema,
 }));
 

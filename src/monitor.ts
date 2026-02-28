@@ -7,18 +7,17 @@ import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
 import type { ResolvedAgentAccount } from "./types/index.js";
 import type { ResolvedBotAccount } from "./types/index.js";
-import type { WecomInboundMessage, WecomInboundQuote } from "./types.js";
+import type { WecomBotInboundMessage as WecomInboundMessage, WecomInboundQuote } from "./types/index.js";
 import { decryptWecomEncrypted, encryptWecomPlaintext, verifyWecomSignature, computeWecomMsgSignature } from "./crypto.js";
 import { extractEncryptFromXml } from "./crypto/xml.js";
 import { getWecomRuntime } from "./runtime.js";
-import { decryptWecomMedia, decryptWecomMediaWithHttp } from "./media.js";
-import { WEBHOOK_PATHS } from "./types/constants.js";
+import { decryptWecomMediaWithHttp } from "./media.js";
+import { WEBHOOK_PATHS, LIMITS as WECOM_LIMITS } from "./types/constants.js";
 import { handleAgentWebhook } from "./agent/index.js";
-import { resolveWecomAccount, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes } from "./config/index.js";
+import { resolveWecomAccount, resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "./config/index.js";
 import { wecomFetch } from "./http.js";
 import { sendText as sendAgentText, sendMedia as sendAgentMedia, uploadMedia } from "./agent/api-client.js";
 import { extractAgentId, parseXml } from "./shared/xml-parser.js";
-import axios from "axios";
 
 /**
  * **核心监控模块 (Monitor Loop)**
@@ -51,8 +50,6 @@ type AgentWebhookTarget = {
   // ...
 };
 const agentTargets = new Map<string, AgentWebhookTarget[]>();
-
-const pendingInbounds = new Map<string, PendingInbound>();
 
 const STREAM_MAX_BYTES = LIMITS.STREAM_MAX_BYTES;
 const STREAM_MAX_DM_BYTES = 200_000;
@@ -599,6 +596,40 @@ function resolveWecomSenderUserId(msg: WecomInboundMessage): string | undefined 
   return legacy || undefined;
 }
 
+export type BotInboundProcessDecision = {
+  shouldProcess: boolean;
+  reason: string;
+  senderUserId?: string;
+  chatId?: string;
+};
+
+/**
+ * 仅允许“真实用户消息”进入 Bot 会话:
+ * - 发送者缺失 -> 丢弃，避免落到 unknown 会话导致串会话
+ * - 发送者是 sys -> 丢弃，避免系统回调触发 AI 自动回复
+ * - 群消息缺失 chatid -> 丢弃，避免 group:unknown 串群
+ */
+export function shouldProcessBotInboundMessage(msg: WecomInboundMessage): BotInboundProcessDecision {
+  const senderUserId = resolveWecomSenderUserId(msg)?.trim();
+  if (!senderUserId) {
+    return { shouldProcess: false, reason: "missing_sender" };
+  }
+  if (senderUserId.toLowerCase() === "sys") {
+    return { shouldProcess: false, reason: "system_sender" };
+  }
+
+  const chatType = String(msg.chattype ?? "").trim().toLowerCase();
+  if (chatType === "group") {
+    const chatId = msg.chatid?.trim();
+    if (!chatId) {
+      return { shouldProcess: false, reason: "missing_chatid", senderUserId };
+    }
+    return { shouldProcess: true, reason: "user_message", senderUserId, chatId };
+  }
+
+  return { shouldProcess: true, reason: "user_message", senderUserId, chatId: senderUserId };
+}
+
 function parseWecomPlainMessage(raw: string): WecomInboundMessage {
   const parsed = JSON.parse(raw) as unknown;
   if (!parsed || typeof parsed !== "object") {
@@ -1023,23 +1054,45 @@ async function startAgentForStream(params: {
     cfg: config,
     channel: "wecom",
     accountId: account.accountId,
-    peer: { kind: chatType === "group" ? "group" : "dm", id: chatId },
+    peer: { kind: chatType === "group" ? "group" : "direct", id: chatId },
   });
 
-  // ===== 动态 Agent 路由注入 =====
   const useDynamicAgent = shouldUseDynamicAgent({
     chatType: chatType === "group" ? "group" : "dm",
     senderId: userid,
     config,
   });
 
+  if (shouldRejectWecomDefaultRoute({ cfg: config, matchedBy: route.matchedBy, useDynamicAgent })) {
+    const prompt =
+      `当前账号（${account.accountId}）未绑定 OpenClaw Agent，已拒绝回退到默认主智能体。` +
+      `请在 bindings 中添加：{"agentId":"你的Agent","match":{"channel":"wecom","accountId":"${account.accountId}"}}`;
+    target.runtime.error?.(
+      `[wecom] routing guard: blocked default fallback accountId=${account.accountId} matchedBy=${route.matchedBy} streamId=${streamId}`,
+    );
+    streamStore.updateStream(streamId, (s) => {
+      s.finished = true;
+      s.content = prompt;
+    });
+    try {
+      await sendBotFallbackPromptNow({ streamId, text: prompt });
+    } catch (err) {
+      target.runtime.error?.(`routing guard prompt push failed streamId=${streamId}: ${String(err)}`);
+    }
+    streamStore.onStreamFinished(streamId);
+    return;
+  }
+
+  // ===== 动态 Agent 路由注入 =====
+
   if (useDynamicAgent) {
     const targetAgentId = generateAgentId(
       chatType === "group" ? "group" : "dm",
-      chatId
+      chatId,
+      account.accountId,
     );
     route.agentId = targetAgentId;
-    route.sessionKey = `agent:${targetAgentId}:${chatType === "group" ? "group" : "dm"}:${chatId}`;
+    route.sessionKey = `agent:${targetAgentId}:wecom:${account.accountId}:${chatType === "group" ? "group" : "dm"}:${chatId}`;
     // 异步添加到 agents.list（不阻塞）
     ensureDynamicAgentListed(targetAgentId, core).catch(() => {});
     logVerbose(target, `dynamic agent routing: ${targetAgentId}, sessionKey=${route.sessionKey}`);
@@ -1152,6 +1205,10 @@ async function startAgentForStream(params: {
   // 重要：message 工具不是 sandbox 工具，必须通过 cfg.tools.deny 禁用。
   // 否则 Agent 可能直接通过 message 工具私信/发群，绕过 Bot 交付链路，导致群里“没有任何提示”。
   const cfgForDispatch = (() => {
+    const baseAgents = (config as any)?.agents ?? {};
+    const baseAgentDefaults = (baseAgents as any)?.defaults ?? {};
+    const baseBlockChunk = (baseAgentDefaults as any)?.blockStreamingChunk ?? {};
+    const baseBlockCoalesce = (baseAgentDefaults as any)?.blockStreamingCoalesce ?? {};
     const baseTools = (config as any)?.tools ?? {};
     const baseSandbox = (baseTools as any)?.sandbox ?? {};
     const baseSandboxTools = (baseSandbox as any)?.tools ?? {};
@@ -1159,6 +1216,25 @@ async function startAgentForStream(params: {
     const deny = Array.from(new Set([...existingDeny, "message"]));
     return {
       ...(config as any),
+      agents: {
+        ...baseAgents,
+        defaults: {
+          ...baseAgentDefaults,
+          // Bot 通道使用企业微信被动流式刷新，需要更小的块阈值，避免只在结束时一次性输出。
+          blockStreamingChunk: {
+            ...baseBlockChunk,
+            minChars: baseBlockChunk.minChars ?? 120,
+            maxChars: baseBlockChunk.maxChars ?? 360,
+            breakPreference: baseBlockChunk.breakPreference ?? "sentence",
+          },
+          blockStreamingCoalesce: {
+            ...baseBlockCoalesce,
+            minChars: baseBlockCoalesce.minChars ?? 120,
+            maxChars: baseBlockCoalesce.maxChars ?? 360,
+            idleMs: baseBlockCoalesce.idleMs ?? 250,
+          },
+        },
+      },
       tools: {
         ...baseTools,
         sandbox: {
@@ -1178,8 +1254,13 @@ async function startAgentForStream(params: {
   await core.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
     ctx: ctxPayload,
     cfg: cfgForDispatch,
+    // WeCom Bot relies on passive stream-refresh callbacks; force block streaming on
+    // so the dispatcher emits incremental blocks instead of only a final message.
+    replyOptions: {
+      disableBlockStreaming: false,
+    },
     dispatcherOptions: {
-      deliver: async (payload) => {
+      deliver: async (payload, info) => {
         let text = payload.text ?? "";
 
         // 保护 <think> 标签不被 markdown 表格转换破坏
@@ -1252,7 +1333,7 @@ async function startAgentForStream(params: {
 
         logVerbose(
           target,
-          `deliver: chatType=${current.chatType ?? chatType} user=${current.userId ?? userid} textLen=${text.length} mediaCount=${(payload.mediaUrls?.length ?? 0) + (payload.mediaUrl ? 1 : 0)}`,
+          `deliver: kind=${info.kind} chatType=${current.chatType ?? chatType} user=${current.userId ?? userid} textLen=${text.length} mediaCount=${(payload.mediaUrls?.length ?? 0) + (payload.mediaUrl ? 1 : 0)}`,
         );
 
         // If the model referenced a local image path in its reply but did not emit mediaUrl(s),
@@ -1722,7 +1803,7 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
 
       if (req.method !== "POST") return false;
 
-      const rawBody = await readTextBody(req, LIMITS.MAX_REQUEST_BODY_SIZE);
+      const rawBody = await readTextBody(req, WECOM_LIMITS.MAX_REQUEST_BODY_SIZE);
       if (!rawBody.ok) {
         res.statusCode = 400;
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
@@ -1773,25 +1854,39 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
       }
 
       const selected = signatureMatches[0]!;
+      let decrypted = "";
+      let parsed: ReturnType<typeof parseXml> | null = null;
       try {
-        const plain = decryptWecomEncrypted({
+        decrypted = decryptWecomEncrypted({
           encodingAESKey: selected.agent.encodingAESKey,
           receiveId: selected.agent.corpId,
           encrypt: encrypted,
         });
-        const parsed = parseXml(plain);
-        const inboundAgentId = normalizeAgentIdValue(extractAgentId(parsed));
-        if (
-          inboundAgentId !== undefined &&
-          selected.agent.agentId !== undefined &&
-          inboundAgentId !== selected.agent.agentId
-        ) {
-          selected.runtime.error?.(
-            `[wecom] inbound(agent): reqId=${reqId} accountId=${selected.agent.accountId} agentId_mismatch expected=${selected.agent.agentId} actual=${inboundAgentId}`,
-          );
-        }
+        parsed = parseXml(decrypted);
       } catch {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(`decrypt failed - 解密失败，请检查 EncodingAESKey${ERROR_HELP}`);
+        return true;
       }
+      if (!parsed) {
+        res.statusCode = 400;
+        res.setHeader("Content-Type", "text/plain; charset=utf-8");
+        res.end(`invalid xml - XML 解析失败${ERROR_HELP}`);
+        return true;
+      }
+
+      const inboundAgentId = normalizeAgentIdValue(extractAgentId(parsed));
+      if (
+        inboundAgentId !== undefined &&
+        selected.agent.agentId !== undefined &&
+        inboundAgentId !== selected.agent.agentId
+      ) {
+        selected.runtime.error?.(
+          `[wecom] inbound(agent): reqId=${reqId} accountId=${selected.agent.accountId} agentId_mismatch expected=${selected.agent.agentId} actual=${inboundAgentId}`,
+        );
+      }
+
       const core = getWecomRuntime();
       selected.runtime.log?.(
         `[wecom] inbound(agent): reqId=${reqId} method=${req.method ?? "UNKNOWN"} remote=${remote} timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${hasSig ? "yes" : "no"} accountId=${selected.agent.accountId}`,
@@ -1799,7 +1894,14 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
       return handleAgentWebhook({
         req,
         res,
-        rawXml: rawBody.value,
+        verifiedPost: {
+          timestamp,
+          nonce,
+          signature,
+          encrypted,
+          decrypted,
+          parsed,
+        },
         agent: selected.agent,
         config: selected.config,
         core,
@@ -1994,8 +2096,18 @@ export async function handleWecomWebhookRequest(req: IncomingMessage, res: Serve
 
   // Handle Message (with Debounce)
   try {
-    const userid = resolveWecomSenderUserId(msg) || "unknown";
-    const chatId = msg.chattype === "group" ? (msg.chatid?.trim() || "unknown") : userid;
+    const decision = shouldProcessBotInboundMessage(msg);
+    if (!decision.shouldProcess) {
+      logInfo(
+        target,
+        `inbound: skipped msgtype=${msgtype} reason=${decision.reason} chattype=${String(msg.chattype ?? "")} chatid=${String(msg.chatid ?? "")} from=${resolveWecomSenderUserId(msg) || "N/A"}`,
+      );
+      jsonOk(res, buildEncryptedJsonReply({ account: target.account, plaintextJson: {}, nonce, timestamp }));
+      return true;
+    }
+
+    const userid = decision.senderUserId!;
+    const chatId = decision.chatId ?? userid;
     const conversationKey = `wecom:${target.account.accountId}:${userid}:${chatId}`;
     const msgContent = buildInboundBody(msg);
 

@@ -30,6 +30,16 @@ export type WecomNetworkConfig = {
     egressProxyUrl?: string;
 };
 
+/** 路由行为配置 */
+export type WecomRoutingConfig = {
+    /**
+     * 当路由未命中 bindings（matchedBy=default）时是否拒绝继续处理。
+     * - true: fail-closed（推荐于多账号）
+     * - false: 允许回退默认 agent（历史兼容）
+     */
+    failClosedOnDefaultRoute?: boolean;
+};
+
 /**
  * Bot 模式配置 (智能体)
  * 用于接收 JSON 格式回调 + 流式回复
@@ -112,6 +122,8 @@ export type WecomConfig = {
     media?: WecomMediaConfig;
     /** 网络配置 */
     network?: WecomNetworkConfig;
+    /** 路由配置 */
+    routing?: WecomRoutingConfig;
     /** 动态 Agent 配置 */
     dynamicAgents?: WecomDynamicAgentsConfig;
 };

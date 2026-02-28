@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 
-import { extractContent, extractMediaId, extractMsgId } from "./xml-parser.js";
+import { extractContent, extractFromUser, extractMediaId, extractMsgId, parseXml } from "./xml-parser.js";
 
 describe("wecom xml-parser", () => {
   test("extractContent is robust to non-string Content", () => {
@@ -26,5 +26,25 @@ describe("wecom xml-parser", () => {
   test("extractMsgId handles number MsgId", () => {
     const msg: any = { MsgId: 123456789 };
     expect(extractMsgId(msg)).toBe("123456789");
+  });
+
+  test("parseXml preserves leading zero userid in FromUserName", () => {
+    const xml = `
+      <xml>
+        <FromUserName><![CDATA[0254571]]></FromUserName>
+      </xml>
+    `;
+    const msg = parseXml(xml);
+    expect(extractFromUser(msg)).toBe("0254571");
+  });
+
+  test("parseXml preserves 64-bit MsgId as string", () => {
+    const xml = `
+      <xml>
+        <MsgId>1234567890123456</MsgId>
+      </xml>
+    `;
+    const msg = parseXml(xml);
+    expect(extractMsgId(msg)).toBe("1234567890123456");
   });
 });

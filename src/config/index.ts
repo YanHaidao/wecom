@@ -9,8 +9,10 @@ export {
     listWecomAccountIds,
     resolveDefaultWecomAccountId,
     resolveWecomAccount,
+    resolveWecomAccountConflict,
     resolveWecomAccounts,
     isWecomEnabled,
 } from "./accounts.js";
 export { resolveWecomEgressProxyUrl, resolveWecomEgressProxyUrlFromNetwork } from "./network.js";
 export { DEFAULT_WECOM_MEDIA_MAX_BYTES, resolveWecomMediaMaxBytes } from "./media.js";
+export { resolveWecomFailClosedOnDefaultRoute, shouldRejectWecomDefaultRoute } from "./routing.js";

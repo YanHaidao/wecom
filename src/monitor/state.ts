@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 import type { StreamState, PendingInbound, ActiveReplyState, WecomWebhookTarget } from "./types.js";
-import type { WecomInboundMessage } from "../types.js";
+import type { WecomBotInboundMessage as WecomInboundMessage } from "../types/index.js";
 
 // Constants
 export const LIMITS = {

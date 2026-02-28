@@ -10,6 +10,8 @@ const xmlParser = new XMLParser({
     ignoreAttributes: false,
     trimValues: true,
     processEntities: false,
+    parseTagValue: false,
+    parseAttributeValue: false,
 });
 
 /**

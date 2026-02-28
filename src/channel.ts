@@ -4,18 +4,19 @@ import type {
   OpenClawConfig,
 } from "openclaw/plugin-sdk";
 import {
+  deleteAccountFromConfigSection,
   setAccountEnabledInConfigSection,
 } from "openclaw/plugin-sdk";
 
 import {
   DEFAULT_ACCOUNT_ID,
-  detectMode,
   listWecomAccountIds,
   resolveDefaultWecomAccountId,
   resolveWecomAccount,
+  resolveWecomAccountConflict,
 } from "./config/index.js";
 import type { ResolvedWecomAccount } from "./types/index.js";
-import { registerAgentWebhookTarget, registerWecomWebhookTarget } from "./monitor.js";
+import { monitorWecomProvider } from "./gateway-monitor.js";
 import { wecomOnboardingAdapter } from "./onboarding.js";
 import { wecomOutbound } from "./outbound.js";
 
@@ -74,23 +75,38 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
         enabled,
         allowTopLevel: true,
       }),
-    deleteAccount: ({ cfg }) => {
-      const next = { ...(cfg as OpenClawConfig) };
-      if (next.channels?.wecom) {
-        const channels = { ...(next.channels ?? {}) } as Record<string, unknown>;
-        delete (channels as Record<string, unknown>).wecom;
-        return { ...next, channels } as OpenClawConfig;
+    deleteAccount: ({ cfg, accountId }) =>
+      deleteAccountFromConfigSection({
+        cfg: cfg as OpenClawConfig,
+        sectionKey: "wecom",
+        accountId,
+        clearBaseFields: ["bot", "agent"],
+      }),
+    isConfigured: (account, cfg) => {
+      if (!account.configured) {
+        return false;
       }
-      return next;
+      return !resolveWecomAccountConflict({
+        cfg: cfg as OpenClawConfig,
+        accountId: account.accountId,
+      });
     },
-    isConfigured: (account) => account.configured,
-    describeAccount: (account): ChannelAccountSnapshot => {
+    unconfiguredReason: (account, cfg) =>
+      resolveWecomAccountConflict({
+        cfg: cfg as OpenClawConfig,
+        accountId: account.accountId,
+      })?.message ?? "not configured",
+    describeAccount: (account, cfg): ChannelAccountSnapshot => {
       const matrixMode = account.accountId !== DEFAULT_ACCOUNT_ID;
+      const conflict = resolveWecomAccountConflict({
+        cfg: cfg as OpenClawConfig,
+        accountId: account.accountId,
+      });
       return {
         accountId: account.accountId,
         name: account.name,
         enabled: account.enabled,
-        configured: account.configured,
+        configured: account.configured && !conflict,
         webhookPath: account.bot?.config
           ? (matrixMode ? `/wecom/bot/${account.accountId}` : "/wecom/bot")
           : account.agent?.config
@@ -149,108 +165,39 @@ export const wecomPlugin: ChannelPlugin<ResolvedWecomAccount> = {
       lastProbeAt: snapshot.lastProbeAt ?? null,
     }),
     probeAccount: async () => ({ ok: true }),
-    buildAccountSnapshot: ({ account, runtime }) => ({
-      accountId: account.accountId,
-      name: account.name,
-      enabled: account.enabled,
-      configured: account.configured,
-      webhookPath: account.bot?.config
-        ? (account.accountId === DEFAULT_ACCOUNT_ID ? "/wecom/bot" : `/wecom/bot/${account.accountId}`)
-        : account.agent?.config
-          ? (account.accountId === DEFAULT_ACCOUNT_ID ? "/wecom/agent" : `/wecom/agent/${account.accountId}`)
-          : "/wecom",
-      running: runtime?.running ?? false,
-      lastStartAt: runtime?.lastStartAt ?? null,
-      lastStopAt: runtime?.lastStopAt ?? null,
-      lastError: runtime?.lastError ?? null,
-      lastInboundAt: runtime?.lastInboundAt ?? null,
-      lastOutboundAt: runtime?.lastOutboundAt ?? null,
-      dmPolicy: account.bot?.config.dm?.policy ?? "pairing",
-    }),
+    buildAccountSnapshot: ({ account, runtime, cfg }) => {
+      const conflict = resolveWecomAccountConflict({
+        cfg: cfg as OpenClawConfig,
+        accountId: account.accountId,
+      });
+      return {
+        accountId: account.accountId,
+        name: account.name,
+        enabled: account.enabled,
+        configured: account.configured && !conflict,
+        webhookPath: account.bot?.config
+          ? (account.accountId === DEFAULT_ACCOUNT_ID ? "/wecom/bot" : `/wecom/bot/${account.accountId}`)
+          : account.agent?.config
+            ? (account.accountId === DEFAULT_ACCOUNT_ID ? "/wecom/agent" : `/wecom/agent/${account.accountId}`)
+            : "/wecom",
+        running: runtime?.running ?? false,
+        lastStartAt: runtime?.lastStartAt ?? null,
+        lastStopAt: runtime?.lastStopAt ?? null,
+        lastError: runtime?.lastError ?? conflict?.message ?? null,
+        lastInboundAt: runtime?.lastInboundAt ?? null,
+        lastOutboundAt: runtime?.lastOutboundAt ?? null,
+        dmPolicy: account.bot?.config.dm?.policy ?? "pairing",
+      };
+    },
   },
   gateway: {
     /**
      * **startAccount (启动账号)**
-     * 
-     * 插件生命周期：启动
-     * 职责：
-     * 1. 检查配置是否有效。
-     * 2. 注册 Bot Webhook (`/wecom`, `/wecom/bot`)。
-     * 3. 注册 Agent Webhook (`/wecom/agent`)。
-     * 4. 更新运行时状态 (Running)。
-     * 5. 返回停止回调 (Cleanup)。
+     *
+     * WeCom lifecycle is long-running: keep webhook targets active until
+     * gateway stop/reload aborts the account.
      */
-    startAccount: async (ctx) => {
-      const account = ctx.account;
-      const mode = detectMode((ctx.cfg as OpenClawConfig).channels?.wecom as any);
-      const matrixMode = mode === "matrix";
-      const bot = account.bot;
-      const agent = account.agent;
-      const botConfigured = Boolean(bot?.configured);
-      const agentConfigured = Boolean(agent?.configured);
-
-      if (!botConfigured && !agentConfigured) {
-        ctx.log?.warn(`[${account.accountId}] wecom not configured; skipping webhook registration`);
-        ctx.setStatus({ accountId: account.accountId, running: false, configured: false });
-        return { stop: () => { } };
-      }
-
-      const unregisters: Array<() => void> = [];
-      if (bot && botConfigured) {
-        const paths = matrixMode
-          ? [`/wecom/bot/${account.accountId}`]
-          : ["/wecom", "/wecom/bot"];
-        for (const path of paths) {
-          unregisters.push(
-            registerWecomWebhookTarget({
-              account: bot,
-              config: ctx.cfg as OpenClawConfig,
-              runtime: ctx.runtime,
-              // The HTTP handler resolves the active PluginRuntime via getWecomRuntime().
-              // The stored target only needs to be decrypt/verify-capable.
-              core: ({} as unknown) as any,
-              path,
-              statusSink: (patch) => ctx.setStatus({ accountId: ctx.accountId, ...patch }),
-            }),
-          );
-        }
-        ctx.log?.info(`[${account.accountId}] wecom bot webhook registered at ${paths.join(", ")}`);
-      }
-      if (agent && agentConfigured) {
-        const path = matrixMode ? `/wecom/agent/${account.accountId}` : "/wecom/agent";
-        unregisters.push(
-          registerAgentWebhookTarget({
-            agent,
-            config: ctx.cfg as OpenClawConfig,
-            runtime: ctx.runtime,
-            path,
-          }),
-        );
-        ctx.log?.info(`[${account.accountId}] wecom agent webhook registered at ${path}`);
-      }
-
-      ctx.setStatus({
-        accountId: account.accountId,
-        running: true,
-        configured: true,
-        webhookPath: botConfigured
-          ? (matrixMode ? `/wecom/bot/${account.accountId}` : "/wecom/bot")
-          : (matrixMode ? `/wecom/agent/${account.accountId}` : "/wecom/agent"),
-        lastStartAt: Date.now(),
-      });
-      return {
-        stop: () => {
-          for (const unregister of unregisters) {
-            unregister();
-          }
-          ctx.setStatus({
-            accountId: account.accountId,
-            running: false,
-            lastStopAt: Date.now(),
-          });
-        },
-      };
-    },
+    startAccount: monitorWecomProvider,
     stopAccount: async (ctx) => {
       ctx.setStatus({
         accountId: ctx.account.accountId,

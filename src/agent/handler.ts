@@ -8,11 +8,7 @@ import path from "node:path";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 import type { ResolvedAgentAccount } from "../types/index.js";
-import { LIMITS } from "../types/constants.js";
-import { decryptWecomEncrypted, verifyWecomSignature, computeWecomMsgSignature, encryptWecomPlaintext } from "../crypto/index.js";
-import { extractEncryptFromXml, buildEncryptedXmlResponse } from "../crypto/xml.js";
 import {
-    parseXml,
     extractMsgType,
     extractFromUser,
     extractContent,
@@ -26,7 +22,7 @@ import { sendText, downloadMedia } from "./api-client.js";
 import { getWecomRuntime } from "../runtime.js";
 import type { WecomAgentInboundMessage } from "../types/index.js";
 import { buildWecomUnauthorizedCommandPrompt, resolveWecomCommandAuthorization } from "../shared/command-auth.js";
-import { resolveWecomMediaMaxBytes } from "../config/index.js";
+import { resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "../config/index.js";
 import { generateAgentId, shouldUseDynamicAgent, ensureDynamicAgentListed } from "../dynamic-agent.js";
 
 /** 错误提示信息 */
@@ -109,14 +105,72 @@ function buildTextFilePreview(buffer: Buffer, maxChars: number): string | undefi
 export type AgentWebhookParams = {
     req: IncomingMessage;
     res: ServerResponse;
-    /** 预读取的原始 XML（由上游路由器提供） */
-    rawXml?: string;
+    /**
+     * 上游已完成验签/解密时传入，避免重复协议处理。
+     * 仅用于 POST 消息回调流程。
+     */
+    verifiedPost?: {
+        timestamp: string;
+        nonce: string;
+        signature: string;
+        encrypted: string;
+        decrypted: string;
+        parsed: WecomAgentInboundMessage;
+    };
     agent: ResolvedAgentAccount;
     config: OpenClawConfig;
     core: PluginRuntime;
     log?: (msg: string) => void;
     error?: (msg: string) => void;
 };
+
+export type AgentInboundProcessDecision = {
+    shouldProcess: boolean;
+    reason: string;
+};
+
+/**
+ * 仅允许“用户意图消息”进入 AI 会话。
+ * - event 回调（如 enter_agent/subscribe）不应触发会话与自动回复
+ * - 系统发送者（sys）不应触发会话与自动回复
+ * - 缺失发送者时默认丢弃，避免写入异常会话
+ */
+export function shouldProcessAgentInboundMessage(params: {
+    msgType: string;
+    fromUser: string;
+    eventType?: string;
+}): AgentInboundProcessDecision {
+    const msgType = String(params.msgType ?? "").trim().toLowerCase();
+    const fromUser = String(params.fromUser ?? "").trim();
+    const normalizedFromUser = fromUser.toLowerCase();
+    const eventType = String(params.eventType ?? "").trim().toLowerCase();
+
+    if (msgType === "event") {
+        return {
+            shouldProcess: false,
+            reason: `event:${eventType || "unknown"}`,
+        };
+    }
+
+    if (!fromUser) {
+        return {
+            shouldProcess: false,
+            reason: "missing_sender",
+        };
+    }
+
+    if (normalizedFromUser === "sys") {
+        return {
+            shouldProcess: false,
+            reason: "system_sender",
+        };
+    }
+
+    return {
+        shouldProcess: true,
+        reason: "user_message",
+    };
+}
 
 function normalizeAgentId(value: unknown): number | undefined {
     if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -137,142 +191,36 @@ function resolveQueryParams(req: IncomingMessage): URLSearchParams {
 }
 
 /**
- * **readRawBody (读取原始请求体)**
- * 
- * 异步读取 HTTP POST 请求的原始 BODY 数据（XML 字符串）。
- * 包含最大体积限制检查，防止内存溢出攻击。
- */
-async function readRawBody(req: IncomingMessage, maxSize: number = LIMITS.MAX_REQUEST_BODY_SIZE): Promise<string> {
-    return new Promise((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        let size = 0;
-
-        req.on("data", (chunk: Buffer) => {
-            size += chunk.length;
-            if (size > maxSize) {
-                reject(new Error("Request body too large"));
-                req.destroy();
-                return;
-            }
-            chunks.push(chunk);
-        });
-
-        req.on("end", () => {
-            resolve(Buffer.concat(chunks).toString("utf8"));
-        });
-
-        req.on("error", reject);
-    });
-}
-
-/**
- * **handleUrlVerification (处理 URL 验证)**
- * 
- * 处理企业微信 Agent 配置时的 GET 请求验证。
- * 流程：
- * 1. 验证 msg_signature 签名。
- * 2. 解密 echostr 参数。
- * 3. 返回解密后的明文 echostr。
- */
-async function handleUrlVerification(
-    req: IncomingMessage,
-    res: ServerResponse,
-    agent: ResolvedAgentAccount,
-): Promise<boolean> {
-    const query = resolveQueryParams(req);
-    const timestamp = query.get("timestamp") ?? "";
-    const nonce = query.get("nonce") ?? "";
-    const echostr = query.get("echostr") ?? "";
-    const signature = query.get("msg_signature") ?? "";
-    const remote = req.socket?.remoteAddress ?? "unknown";
-
-    // 不输出敏感参数内容，仅输出存在性
-    // 用于排查：是否有请求打到 /wecom/agent
-    // 以及是否带齐 timestamp/nonce/msg_signature/echostr
-    // eslint-disable-next-line no-unused-vars
-    const _debug = { remote, hasTimestamp: Boolean(timestamp), hasNonce: Boolean(nonce), hasSig: Boolean(signature), hasEchostr: Boolean(echostr) };
-
-    const valid = verifyWecomSignature({
-        token: agent.token,
-        timestamp,
-        nonce,
-        encrypt: echostr,
-        signature,
-    });
-
-    if (!valid) {
-        res.statusCode = 401;
-        res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.end(`unauthorized - 签名验证失败，请检查 Token 配置${ERROR_HELP}`);
-        return true;
-    }
-
-    try {
-        const plain = decryptWecomEncrypted({
-            encodingAESKey: agent.encodingAESKey,
-            receiveId: agent.corpId,
-            encrypt: echostr,
-        });
-        res.statusCode = 200;
-        res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.end(plain);
-        return true;
-    } catch {
-        res.statusCode = 400;
-        res.setHeader("Content-Type", "text/plain; charset=utf-8");
-        res.end(`decrypt failed - 解密失败，请检查 EncodingAESKey 配置${ERROR_HELP}`);
-        return true;
-    }
-}
-
-/**
  * 处理消息回调 (POST)
  */
 async function handleMessageCallback(params: AgentWebhookParams): Promise<boolean> {
-    const { req, res, rawXml, agent, config, core, log, error } = params;
+    const { req, res, verifiedPost, agent, config, core, log, error } = params;
 
     try {
-        log?.(`[wecom-agent] inbound: method=${req.method ?? "UNKNOWN"} remote=${req.socket?.remoteAddress ?? "unknown"}`);
-        const resolvedRawXml = rawXml ?? (await readRawBody(req));
-        log?.(`[wecom-agent] inbound: rawXmlBytes=${Buffer.byteLength(resolvedRawXml, "utf8")}`);
-        const encrypted = extractEncryptFromXml(resolvedRawXml);
-        log?.(`[wecom-agent] inbound: hasEncrypt=${Boolean(encrypted)} encryptLen=${encrypted ? String(encrypted).length : 0}`);
-
-        const query = resolveQueryParams(req);
-        const timestamp = query.get("timestamp") ?? "";
-        const nonce = query.get("nonce") ?? "";
-        const signature = query.get("msg_signature") ?? "";
-        log?.(
-            `[wecom-agent] inbound: query timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${signature ? "yes" : "no"}`,
-        );
-
-        // 验证签名
-        const valid = verifyWecomSignature({
-            token: agent.token,
-            timestamp,
-            nonce,
-            encrypt: encrypted,
-            signature,
-        });
-
-        if (!valid) {
-            error?.(`[wecom-agent] inbound: signature invalid`);
-            res.statusCode = 401;
+        if (!verifiedPost) {
+            error?.("[wecom-agent] inbound: missing preverified envelope");
+            res.statusCode = 400;
             res.setHeader("Content-Type", "text/plain; charset=utf-8");
-            res.end(`unauthorized - 签名验证失败${ERROR_HELP}`);
+            res.end(`invalid request - 缺少上游验签结果${ERROR_HELP}`);
             return true;
         }
 
-        // 解密
-        const decrypted = decryptWecomEncrypted({
-            encodingAESKey: agent.encodingAESKey,
-            receiveId: agent.corpId,
-            encrypt: encrypted,
-        });
+        log?.(`[wecom-agent] inbound: method=${req.method ?? "UNKNOWN"} remote=${req.socket?.remoteAddress ?? "unknown"}`);
+        const query = resolveQueryParams(req);
+        const querySignature = query.get("msg_signature") ?? "";
+
+        const encrypted = verifiedPost.encrypted;
+        const decrypted = verifiedPost.decrypted;
+        const msg = verifiedPost.parsed;
+        const timestamp = verifiedPost.timestamp;
+        const nonce = verifiedPost.nonce;
+        const signature = verifiedPost.signature || querySignature;
+        log?.(
+            `[wecom-agent] inbound: using preverified envelope timestamp=${timestamp ? "yes" : "no"} nonce=${nonce ? "yes" : "no"} msg_signature=${signature ? "yes" : "no"} encryptLen=${encrypted.length}`,
+        );
+
         log?.(`[wecom-agent] inbound: decryptedBytes=${Buffer.byteLength(decrypted, "utf8")}`);
 
-        // 解析 XML
-        const msg = parseXml(decrypted);
         const inboundAgentId = normalizeAgentId(extractAgentId(msg));
         if (
             inboundAgentId !== undefined &&
@@ -288,6 +236,7 @@ async function handleMessageCallback(params: AgentWebhookParams): Promise<boolea
         const fromUser = extractFromUser(msg);
         const chatId = extractChatId(msg);
         const msgId = extractMsgId(msg);
+        const eventType = String((msg as Record<string, unknown>).Event ?? "").trim().toLowerCase();
         if (msgId) {
             const ok = rememberAgentMsgId(msgId);
             if (!ok) {
@@ -307,6 +256,18 @@ async function handleMessageCallback(params: AgentWebhookParams): Promise<boolea
         res.statusCode = 200;
         res.setHeader("Content-Type", "text/plain; charset=utf-8");
         res.end("success");
+
+        const decision = shouldProcessAgentInboundMessage({
+            msgType,
+            fromUser,
+            eventType,
+        });
+        if (!decision.shouldProcess) {
+            log?.(
+                `[wecom-agent] skip processing: type=${msgType || "unknown"} event=${eventType || "N/A"} from=${fromUser || "N/A"} reason=${decision.reason}`,
+            );
+            return true;
+        }
 
         // 异步处理消息
         processAgentMessage({
@@ -471,7 +432,7 @@ async function processAgentMessage(params: {
         cfg: config,
         channel: "wecom",
         accountId: agent.accountId,
-        peer: { kind: isGroup ? "group" : "dm", id: peerId },
+        peer: { kind: isGroup ? "group" : "direct", id: peerId },
     });
 
     // ===== 动态 Agent 路由注入 =====
@@ -481,13 +442,30 @@ async function processAgentMessage(params: {
         config,
     });
 
+    if (shouldRejectWecomDefaultRoute({ cfg: config, matchedBy: route.matchedBy, useDynamicAgent })) {
+        const prompt =
+            `当前账号（${agent.accountId}）未绑定 OpenClaw Agent，已拒绝回退到默认主智能体。` +
+            `请在 bindings 中添加：{"agentId":"你的Agent","match":{"channel":"wecom","accountId":"${agent.accountId}"}}`;
+        error?.(
+            `[wecom-agent] routing guard: blocked default fallback accountId=${agent.accountId} matchedBy=${route.matchedBy} from=${fromUser}`,
+        );
+        try {
+            await sendText({ agent, toUser: fromUser, chatId: undefined, text: prompt });
+            log?.(`[wecom-agent] routing guard prompt delivered to ${fromUser}`);
+        } catch (err: unknown) {
+            error?.(`[wecom-agent] routing guard prompt failed: ${String(err)}`);
+        }
+        return;
+    }
+
     if (useDynamicAgent) {
         const targetAgentId = generateAgentId(
             isGroup ? "group" : "dm",
-            peerId
+            peerId,
+            agent.accountId,
         );
         route.agentId = targetAgentId;
-        route.sessionKey = `agent:${targetAgentId}:${isGroup ? "group" : "dm"}:${peerId}`;
+        route.sessionKey = `agent:${targetAgentId}:wecom:${agent.accountId}:${isGroup ? "group" : "dm"}:${peerId}`;
         // 异步添加到 agents.list（不阻塞）
         ensureDynamicAgentListed(targetAgentId, core).catch(() => {});
         log?.(`[wecom-agent] dynamic agent routing: ${targetAgentId}, sessionKey=${route.sessionKey}`);
@@ -516,7 +494,7 @@ async function processAgentMessage(params: {
         core,
         cfg: config,
         // Agent 门禁应读取 channels.wecom.agent.dm（即 agent.config.dm），而不是 channels.wecom.dm（不存在）
-        accountConfig: agent.config as any,
+        accountConfig: agent.config,
         rawBody: finalContent,
         senderUserId: fromUser,
     });
@@ -590,25 +568,18 @@ async function processAgentMessage(params: {
             onError: (err: unknown, info: { kind: string }) => {
                 error?.(`[wecom-agent] ${info.kind} reply error: ${String(err)}`);
             },
-        },
-        replyOptions: {
-            disableBlockStreaming: true,
-        },
+        }
     });
 }
 
 /**
  * **handleAgentWebhook (Agent Webhook 入口)**
  * 
- * 统一处理 Agent 模式的 Webhook 请求。
- * 根据 HTTP 方法分发到 URL 验证 (GET) 或 消息处理 (POST)。
+ * 统一处理 Agent 模式的 POST 消息回调请求。
+ * URL 验证与验签/解密由 monitor 层统一处理后再调用本函数。
  */
 export async function handleAgentWebhook(params: AgentWebhookParams): Promise<boolean> {
     const { req } = params;
-
-    if (req.method === "GET") {
-        return handleUrlVerification(req, params.res, params.agent);
-    }
 
     if (req.method === "POST") {
         return handleMessageCallback(params);

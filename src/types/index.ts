@@ -11,6 +11,7 @@ export type {
     WecomDmConfig,
     WecomMediaConfig,
     WecomNetworkConfig,
+    WecomRoutingConfig,
     WecomBotConfig,
     WecomAgentConfig,
     WecomConfig,

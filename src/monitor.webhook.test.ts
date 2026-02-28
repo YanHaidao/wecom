@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 
-import type { ResolvedWecomAccount } from "./types.js";
+import type { ResolvedWecomAccount } from "./types/index.js";
 import { computeWecomMsgSignature, decryptWecomEncrypted, encryptWecomPlaintext } from "./crypto.js";
 import { handleWecomWebhookRequest, registerAgentWebhookTarget, registerWecomWebhookTarget } from "./monitor.js";
 
@@ -227,6 +227,61 @@ describe("handleWecomWebhookRequest", () => {
       expect(reply.msgtype).toBe("stream");
       expect(reply.stream?.content).toBe("正在思考...");
       expect(reply.stream?.finish).toBe(false);
+    } finally {
+      unregister();
+    }
+  });
+
+  it("skips bot callbacks with missing sender and returns empty ack", async () => {
+    const account: ResolvedWecomAccount = {
+      accountId: "default",
+      name: "Test",
+      enabled: true,
+      configured: true,
+      token,
+      encodingAESKey,
+      receiveId: "",
+      config: { webhookPath: "/hook", token, encodingAESKey },
+    };
+
+    const unregister = registerWecomWebhookTarget({
+      account,
+      config: {} as OpenClawConfig,
+      runtime: {},
+      core: {} as any,
+      path: "/hook",
+    });
+
+    try {
+      const timestamp = "1700000001";
+      const nonce = "nonce-missing-sender";
+      const plain = JSON.stringify({
+        msgid: "MSGID-MISSING-SENDER",
+        aibotid: "AIBOTID",
+        chattype: "single",
+        msgtype: "text",
+        text: { content: "hello" },
+      });
+      const encrypt = encryptWecomPlaintext({ encodingAESKey, receiveId: "", plaintext: plain });
+      const msg_signature = computeWecomMsgSignature({ token, timestamp, nonce, encrypt });
+
+      const req = createMockRequest({
+        method: "POST",
+        url: `/hook?msg_signature=${encodeURIComponent(msg_signature)}&timestamp=${encodeURIComponent(timestamp)}&nonce=${encodeURIComponent(nonce)}`,
+        body: { encrypt },
+      });
+      const res = createMockResponse();
+      const handled = await handleWecomWebhookRequest(req, res);
+      expect(handled).toBe(true);
+      expect(res._getStatusCode()).toBe(200);
+
+      const json = JSON.parse(res._getData()) as any;
+      const replyPlain = decryptWecomEncrypted({
+        encodingAESKey,
+        receiveId: "",
+        encrypt: json.encrypt,
+      });
+      expect(JSON.parse(replyPlain)).toEqual({});
     } finally {
       unregister();
     }
