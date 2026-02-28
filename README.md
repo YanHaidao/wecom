@@ -1,6 +1,15 @@
 # OpenClaw 企业微信（WeCom）Channel 插件
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Original%20Project-YanHaidao-orange?style=for-the-badge&logo=github" alt="Original Project" />
+  <img src="https://img.shields.io/badge/License-ISC-blue?style=for-the-badge" alt="License" />
+</p>
+
+> [!WARNING]
+> **原创声明**：本项目涉及的“多账号隔离与矩阵路由架构”、“Bot+Agent双模融合架构”、“长任务超时接力逻辑”及“全自动媒体流转接”等核心设计均为作者 **YanHaidao** 独立思考与实践的原创成果。
+> 欢迎技术交流与合规引用，但**严禁任何不经授权的“功能像素级抄袭”或删除原作者署名的代码搬运行为**。
+
+<p align="center">
   <strong>🚀 企业级双模式 AI 助手接入方案</strong>
 </p>
 
@@ -17,13 +26,21 @@
 <a id="sec-1"></a>
 ## 💡 核心价值：为什么选择本插件？
 
-### 独创架构：Bot + Agent 双模融合
+### 独创架构：Bot + Agent 双模融合 (Original Design by YanHaidao)
 
 传统的企微插件通常只能在 "只能聊天的机器人 (Bot)" 和 "只能推送的自建应用 (Agent)" 之间二选一。
 本插件采用 **双模并行架构**，同时压榨两种模式的极限能力：
 
 *   **Bot 通道 (智能体)**：负责 **实时对话**。提供毫秒级流式响应（打字机效果），零延迟交互。
 *   **Agent 通道 (自建应用)**：负责 **能力兜底**。当需要发送图片/文件、进行全员广播、或 Bot 对话超时（>6分钟）时，无缝切换到 Agent 通道接管。
+
+### 🚀 企业级：多账号（Multi-account）矩阵隔离 (Original Design)
+
+本插件支持 **无限扩展的账号矩阵**，这是本插件区别于普通插件的核心壁垒：
+
+*   **完全隔离 (Isolation)**：不同 `accountId` 之间的会话、动态 Agent、上下文完全隔离，互不串扰。
+*   **矩阵绑定 (Binding)**：支持一个 OpenClaw 实例同时挂载多个企业/多个应用，通过 `bindings` 灵活分发流量。
+*   **智能路由 (Routing)**：基于入站 `accountId` 自动分拣回复路径，Bot 无法回复时仅回退到**同账号组内**的 Agent，实现闭环的高可用。
 
 ### 功能特性全景
 
@@ -479,8 +496,19 @@ Agent 输出 `{"template_card": ...}` 时自动渲染为交互卡片：
 
 ---
 
-<a id="sec-10"></a>
+<a id="sec-legal"></a>
 
+## ⚖️ 授权与原创声明
+
+本项目采用 **ISC License** 开源协议，并在此强调以下要求：
+
+1. **保留署名**：根据 ISC 协议，您在任何分发、修改或使用本项目（或其部分逻辑）时，**必须**在显著位置完整保留本项目的版权声明（Copyright Notice）。
+2. **尊重原创**：本项目包含的“Bot/Agent 自动化互补架构”、“长对话超时接力”、“WeCom 全媒体流自动化处理”等核心逻辑均为作者 **YanHaidao** 独立思考与实践的原创成果。
+3. **维权申明**：对于恶意删除署名、像素级抄袭、混淆视听的恶意搬运行为，作者保留在社区公示及通过法律途径维权的权利。
+
+---
+
+<a id="sec-10"></a>
 ## 八、📝 更新日志
 
 ### 2026.2.28
