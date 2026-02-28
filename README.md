@@ -296,14 +296,14 @@ openclaw channels status
 - Bot 无法交付时，只回退到**同组** Agent，不跨账号兜底。
 - 只有在未显式指定 `accountId` 时，才使用 `defaultAccount`。
 
-### 2.4 Webhook 路径（固定）
+### 2.4 Webhook 路径（优先使用账号路径）
 
 | 模式 | 路径 | 说明 |
 |:---|:---|:---|
-| Bot | `/wecom/bot` | 智能体回调 |
-| Agent | `/wecom/agent` | 自建应用回调 |
-| Bot（多账号） | `/wecom/bot/{accountId}` | 指定账号回调 |
-| Agent（多账号） | `/wecom/agent/{accountId}` | 指定账号回调 |
+| Bot（推荐，多账号） | `/wecom/bot/{accountId}` | 指定账号回调（例如 `/wecom/bot/default`） |
+| Agent（推荐，多账号） | `/wecom/agent/{accountId}` | 指定账号回调（例如 `/wecom/agent/default`） |
+| Bot（兼容，单账号 legacy） | `/wecom/bot` 或 `/wecom` | 历史路径，仅单账号模式建议保留 |
+| Agent（兼容，单账号 legacy） | `/wecom/agent` | 历史路径，单账号模式可用 |
 
 ### 2.5 从单账号迁移到多账号（4 步）
 
@@ -335,7 +335,7 @@ openclaw channels status
 1. 登录 [企业微信管理后台](https://work.weixin.qq.com/wework_admin/frame#/manageTools)
 2. 进入「安全与管理」→「管理工具」→「智能机器人」
 3. 创建机器人，选择 **API 模式**
-4. 填写回调 URL：`https://your-domain.com/wecom/bot`
+4. 填写回调 URL：`https://your-domain.com/wecom/bot/{accountId}`（例如默认账号：`https://your-domain.com/wecom/bot/default`）
 5. 记录 Token 和 EncodingAESKey
 
 ### 3.2 Agent 模式（自建应用）
@@ -346,7 +346,7 @@ openclaw channels status
 4. **重要：** 进入「企业可信IP」→「配置」→ 添加你服务器的 IP 地址
    - 如果你使用内网穿透/动态 IP，建议配置 `channels.wecom.network.egressProxyUrl` 走固定出口代理，否则可能出现：`60020 not allow to access from your ip`
 5. 在应用详情中设置「接收消息 - 设置API接收」
-6. 填写回调 URL：`https://your-domain.com/wecom/agent`
+6. 填写回调 URL：`https://your-domain.com/wecom/agent/{accountId}`（例如默认账号：`https://your-domain.com/wecom/agent/default`）
 7. 记录回调 Token 和 EncodingAESKey
 
 <div align="center">
