@@ -1,5 +1,5 @@
 {
-  "name": "@yanhaidao/wecom",
+  "name": "@haojunyu/wecom",
   "version": "2.3.4",
   "type": "module",
   "description": "OpenClaw WeCom (WeChat Work) intelligent bot channel plugin",
@@ -34,7 +34,7 @@
       "order": 85
     },
     "install": {
-      "npmSpec": "@yanhaidao/wecom",
+      "npmSpec": "@haojunyu/wecom",
       "localPath": "extensions/wecom",
       "defaultChoice": "npm"
     }
