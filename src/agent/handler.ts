@@ -512,6 +512,20 @@ async function processAgentMessage(params: {
         return;
     }
 
+    // DM 策略门禁：如果 dm.policy=disabled 且不是命令，直接拒绝所有消息
+    // 注意：Agent 模式本身不支持群聊回调，所以无需额外检查 chatType
+    if (!authz.shouldComputeAuth && authz.dmPolicy === "disabled") {
+        const prompt = "抱歉，当前机器人已禁用私聊功能。如需帮助，请联系管理员。";
+        log?.(`[wecom-agent] dm: 拒绝私聊（dm.policy=disabled）user=${fromUser}`);
+        try {
+            await sendText({ agent, toUser: fromUser, chatId: undefined, text: prompt });
+            log?.(`[wecom-agent] dm: 私聊禁用提示已推送 to=${fromUser}`);
+        } catch (err: unknown) {
+            error?.(`[wecom-agent] dm: 私聊禁用提示推送失败: ${String(err)}`);
+        }
+        return;
+    }
+
     const ctxPayload = core.channel.reply.finalizeInboundContext({
         Body: body,
         RawBody: finalContent,

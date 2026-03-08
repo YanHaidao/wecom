@@ -1533,6 +1533,25 @@ async function startAgentForStream(params: {
     return;
   }
 
+  // DM 策略门禁：如果 dm.policy=disabled 且不是命令且是私聊，直接拒绝
+  // 注意：只对私聊生效，群聊 @机器人不受影响
+  if (!authz.shouldComputeAuth && authz.dmPolicy === "disabled" && chatType === "direct") {
+    const prompt = "抱歉，当前机器人已禁用私聊功能。如需帮助，请联系管理员。";
+    logInfo(target, `dm: 拒绝私聊（dm.policy=disabled）user=${userid}`);
+    streamStore.updateStream(streamId, (s) => {
+      s.finished = true;
+      s.content = prompt;
+    });
+    try {
+      await sendBotFallbackPromptNow({ streamId, text: prompt });
+      logInfo(target, `dm: 私聊禁用提示已推送 streamId=${streamId}`);
+    } catch (err) {
+      target.runtime.error?.(`dm: 私聊禁用提示推送失败 streamId=${streamId}: ${String(err)}`);
+    }
+    streamStore.onStreamFinished(streamId);
+    return;
+  }
+
   const rawBodyNormalized = rawBody.trim();
   const isResetCommand = /^\/(new|reset)(?:\s|$)/i.test(rawBodyNormalized);
   const resetCommandKind = isResetCommand ? (rawBodyNormalized.match(/^\/(new|reset)/i)?.[1]?.toLowerCase() ?? "new") : null;

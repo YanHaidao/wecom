@@ -5,7 +5,9 @@
       "Bash(./node_modules/.bin/tsc:*)",
       "Bash(npm install)",
       "Bash(npx vitest:*)",
-      "Bash(node --input-type=module -e:*)"
+      "Bash(node --input-type=module -e:*)",
+      "Bash(npx -y typescript --noEmit 2>&1 | head -30)",
+      "Bash(node -e \"\nconst ts = require\\('typescript'\\);\nconst fs = require\\('fs'\\);\nconst files = ['src/monitor.ts', 'src/agent/handler.ts'];\nfor \\(const f of files\\) {\n    const content = fs.readFileSync\\(f, 'utf8'\\);\n    const result = ts.transpileModule\\(content, { compilerOptions: { module: ts.ModuleKind.ES2022, target: ts.ScriptTarget.ES2022 }}\\);\n    if \\(result.diagnostics && result.diagnostics.length > 0\\) {\n        console.log\\('Errors in', f\\);\n        result.diagnostics.forEach\\(d => console.log\\(d.messageText\\)\\);\n    } else {\n        console.log\\(f, ': OK'\\);\n    }\n}\n\")"
     ]
   }
 }
