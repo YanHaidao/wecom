@@ -64,11 +64,14 @@ export type WecomMediaConfig = {
   retentionHours?: number;
   cleanupOnStart?: boolean;
   maxBytes?: number;
+  downloadTimeoutMs?: number;
   localRoots?: string[];
 };
 
 export type WecomNetworkConfig = {
   egressProxyUrl?: string;
+  timeoutMs?: number;
+  mediaDownloadTimeoutMs?: number;
 };
 
 export type WecomRoutingConfig = {
@@ -155,6 +158,7 @@ export type WecomAccountConfig = {
 export type WecomConfig = {
   enabled?: boolean;
   mediaMaxMb?: number;
+  mediaDownloadTimeoutMs?: number;
   bot?: WecomBotConfig;
   agent?: WecomAgentConfig;
   accounts?: Record<string, WecomAccountConfig>;

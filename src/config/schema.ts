@@ -63,11 +63,14 @@ export interface MediaConfig {
   retentionHours?: number;
   cleanupOnStart?: boolean;
   maxBytes?: number;
+  downloadTimeoutMs?: number;
   localRoots?: string[];
 }
 
 export interface NetworkConfig {
   egressProxyUrl?: string;
+  timeoutMs?: number;
+  mediaDownloadTimeoutMs?: number;
 }
 
 export interface RoutingConfig {
@@ -128,6 +131,7 @@ export interface AccountConfig {
 export interface WecomConfigInput {
   enabled?: boolean;
   mediaMaxMb?: number;
+  mediaDownloadTimeoutMs?: number;
   bot?: BotConfig;
   agent?: AgentConfig;
   accounts?: Record<string, AccountConfig>;
