@@ -1,5 +1,9 @@
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
-import { resolveWecomMediaMaxBytes } from "../config/index.js";
+import {
+  resolveWecomEgressProxyUrl,
+  resolveWecomMediaDownloadTimeoutMs,
+  resolveWecomMediaMaxBytes,
+} from "../config/index.js";
 import { decryptWecomMediaWithMeta } from "../media.js";
 import type { UnifiedInboundEvent } from "../types/index.js";
 import type { NormalizedMediaAttachment } from "./media-types.js";
@@ -40,8 +44,13 @@ export class WecomMediaService {
     aesKey: string;
     maxBytes: number;
   }): Promise<NormalizedMediaAttachment> {
+    const proxyUrl = resolveWecomEgressProxyUrl(this.cfg);
+    const timeoutMs = resolveWecomMediaDownloadTimeoutMs(this.cfg);
+    const urlHost = (() => { try { return new URL(params.url).hostname; } catch { return "?"; } })();
+    const t0 = Date.now();
     const decrypted = await decryptWecomMediaWithMeta(params.url, params.aesKey, {
       maxBytes: params.maxBytes,
+      http: { proxyUrl, timeoutMs },
     });
     return {
       buffer: decrypted.buffer,

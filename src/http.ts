@@ -92,10 +92,18 @@ export async function wecomFetch(input: string | URL, init?: RequestInit, opts?:
     );
     return response;
   } catch (err: unknown) {
-    if (err instanceof Error && err.name === "TypeError" && err.message === "fetch failed") {
+    if (err instanceof Error && err.name === "TimeoutError") {
+      console.error(
+        `[wecom-http] timeout method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyUrl || "none"}`,
+      );
+    } else if (err instanceof Error && err.name === "TypeError" && err.message === "fetch failed") {
       const cause = (err as any).cause;
       console.error(
         `[wecom-http] fetch failed method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyUrl || "none"}${cause ? ` cause=${String(cause)}` : ""}`,
+      );
+    } else if (err instanceof Error && err.name === "AbortError") {
+      console.error(
+        `[wecom-http] aborted method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyUrl || "none"}`,
       );
     }
     throw err;

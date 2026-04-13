@@ -1,5 +1,9 @@
 import { decryptWecomMediaWithMeta } from "../../media.js";
-import { resolveWecomEgressProxyUrl, resolveWecomMediaMaxBytes } from "../../config/index.js";
+import {
+  resolveWecomEgressProxyUrl,
+  resolveWecomMediaDownloadTimeoutMs,
+  resolveWecomMediaMaxBytes,
+} from "../../config/index.js";
 import type { WecomBotInboundMessage as WecomInboundMessage } from "../../types/index.js";
 import type { WecomWebhookTarget } from "../../types/runtime-context.js";
 import { buildInboundBody } from "./message-shape.js";
@@ -351,6 +355,7 @@ export async function processBotInboundMessage(params: {
   const aesKey = target.account.encodingAESKey;
   const maxBytes = resolveWecomMediaMaxBytes(target.config, target.account.accountId);
   const proxyUrl = resolveWecomEgressProxyUrl(target.config);
+  const mediaTimeoutMs = resolveWecomMediaDownloadTimeoutMs(target.config);
 
   const handleMediaFailure = (payload: {
     scope: string;
@@ -360,8 +365,12 @@ export async function processBotInboundMessage(params: {
     bodyFallback: string;
   }): BotInboundNormalizationResult => {
     const reason = classifyMediaFailure(payload.error);
+    const hint =
+      reason === "timeout"
+        ? `可调大 channels.wecom.media.downloadTimeoutMs（当前=${mediaTimeoutMs}ms）例如：openclaw config set channels.wecom.media.downloadTimeoutMs 45000`
+        : `可调大 channels.wecom.mediaMaxMb（当前=${Math.round(maxBytes / (1024 * 1024))}MB）例如：openclaw config set channels.wecom.mediaMaxMb 50`;
     target.runtime.error?.(
-      `Failed to decrypt ${payload.scope} ${payload.kind}: ${String(payload.error)} reason=${reason}; 可调大 channels.wecom.mediaMaxMb（当前=${Math.round(maxBytes / (1024 * 1024))}MB）例如：openclaw config set channels.wecom.mediaMaxMb 50`,
+      `Failed to decrypt ${payload.scope} ${payload.kind}: ${String(payload.error)} reason=${reason}; ${hint}`,
     );
     recordOperationalIssue({
       category: "media-decrypt-failed",
@@ -383,10 +392,14 @@ export async function processBotInboundMessage(params: {
     explicitFilename?: string;
     aesKey?: string;
   }): Promise<BotInboundMedia> => {
+    const urlHost = (() => { try { return new URL(payload.url).hostname; } catch { return "?"; } })();
+    const t0 = Date.now();
+    console.log(`[wecom-media] download-start kind=${payload.kind} host=${urlHost} aesKey=${payload.aesKey ? "payload" : "account"} timeoutMs=${mediaTimeoutMs} proxy=${proxyUrl || "none"}`);
     const decrypted = await decryptWecomMediaWithMeta(payload.url, payload.aesKey ?? aesKey, {
       maxBytes,
-      http: { proxyUrl },
+      http: { proxyUrl, timeoutMs: mediaTimeoutMs },
     });
+    console.log(`[wecom-media] download-ok kind=${payload.kind} host=${urlHost} durationMs=${Date.now() - t0} bytes=${decrypted.buffer.length} contentType=${decrypted.sourceContentType ?? "?"}`);
     const inferred = inferInboundMediaMeta({
       kind: payload.kind === "image" ? "image" : "file",
       buffer: decrypted.buffer,
@@ -521,6 +534,8 @@ export async function processBotInboundMessage(params: {
     // 优先级：顶层媒体已在上面处理，如果没有顶层媒体才检查引用
     const candidate = resolveQuoteMediaCandidate(msg);
     if (candidate?.url && aesKey) {
+      const qHost = (() => { try { return new URL(candidate.url).hostname; } catch { return "?"; } })();
+      console.log(`[wecom-media] quote-candidate msgtype=${msgtype} kind=${candidate.kind} host=${qHost} aesKey=${candidate.aesKey ? "payload" : "account"} msgid=${msg.msgid ?? "?"}`);
       try {
         // 尽快下载并解密媒体（应对 5 分钟 URL 时效窗口）
         const media = await tryDecryptMedia(candidate);
