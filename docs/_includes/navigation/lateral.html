@@ -1,0 +1,187 @@
+<nav id="site-nav" class="site-nav" aria-label="站点导航">
+  <div class="nav-group">
+    <div class="nav-header">📚 文档导航</div>
+    <ul class="nav-list">
+      <li class="nav-item">
+        <a href="{{ site.baseurl }}/" class="nav-link{% if page.url == "/" %} active{% endif %}">
+          🏠 首页
+        </a>
+      </li>
+
+      <li class="nav-item nav-parent {% if page.url contains 'quick-start' %}expanded{% endif %}">
+        <a href="{{ site.baseurl }}/quick-start/quick-start.html" class="nav-link{% if page.url contains 'quick-start' %} active{% endif %}">
+          🚀 快速开始
+        </a>
+        <ul class="nav-sublist">
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html" class="nav-sublink">• 快速开始指南</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#接入前准备" class="nav-sublink">• 接入前准备</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#1-安装并启用插件" class="nav-sublink">• 安装并启用插件</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#2-准备-bot-ws-凭证" class="nav-sublink">• 准备 Bot WS 凭证</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#3-用向导添加渠道" class="nav-sublink">• 用向导添加渠道</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#4-手动配置最小可用-bot-ws" class="nav-sublink">• 手动配置 Bot WS</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#5-发送第一条测试消息" class="nav-sublink">• 测试消息收发</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#6-下一步补-agent" class="nav-sublink">• 下一步补 Agent</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#7-快速判断问题在哪" class="nav-sublink">• 快速判断问题</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item nav-parent {% if page.url contains 'configuration' %}expanded{% endif %}">
+        <a href="{{ site.baseurl }}/configuration/configuration.html" class="nav-link{% if page.url contains 'configuration' %} active{% endif %}">
+          ⚙️ 配置说明
+        </a>
+        <ul class="nav-sublist">
+          <li><a href="{{ site.baseurl }}/configuration/configuration.html" class="nav-sublink">• 配置详解</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item nav-parent {% if page.url contains 'upstream' %}expanded{% endif %}">
+        <a href="{{ site.baseurl }}/upstream/upstream.html" class="nav-link{% if page.url contains 'upstream' %} active{% endif %}">
+          🔗 上下游企业
+        </a>
+        <ul class="nav-sublist">
+          <li><a href="{{ site.baseurl }}/upstream/upstream.html" class="nav-sublink">• 上下游企业实现</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item nav-parent {% if page.url contains 'operation' %}expanded{% endif %}">
+        <a href="{{ site.baseurl }}/operation/deploy.html" class="nav-link{% if page.url contains 'operation' %} active{% endif %}">
+          🛠️ 部署运维
+        </a>
+        <ul class="nav-sublist">
+          <li><a href="{{ site.baseurl }}/operation/deploy.html" class="nav-sublink">• 部署与发布</a></li>
+          <li><a href="{{ site.baseurl }}/operation/troubleshooting.html" class="nav-sublink">• 排障指南</a></li>
+          <li><a href="{{ site.baseurl }}/operation/faq.html" class="nav-sublink">• 常见问题</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item">
+        <a href="https://github.com/YanHaidao/wecom" class="nav-link" target="_blank" rel="noopener">
+          🔗 GitHub 仓库
+        </a>
+      </li>
+    </ul>
+  </div>
+</nav>
+
+<style>
+#site-nav {
+  width: 260px;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #fafbfc 0%, #f5f7fa 100%);
+  border-right: 1px solid #e1e4e8;
+  padding: 1.5rem 0;
+  position: fixed;
+  left: 0;
+  top: 0;
+  overflow-y: auto;
+  box-shadow: 2px 0 8px rgba(0,0,0,0.05);
+  z-index: 1000;
+}
+
+.nav-group {
+  padding: 0 1rem;
+}
+
+.nav-header {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: #24292e;
+  padding: 0.75rem 0.5rem;
+  margin-bottom: 1rem;
+  border-bottom: 3px solid #0366d6;
+  letter-spacing: 0;
+}
+
+.nav-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav-item {
+  margin-bottom: 0.25rem;
+}
+
+.nav-link {
+  display: flex;
+  align-items: center;
+  padding: 0.75rem 1rem;
+  color: #444d56;
+  text-decoration: none;
+  font-size: 0.95rem;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+  font-weight: 500;
+}
+
+.nav-link:hover {
+  background: #f1f8ff;
+  color: #0366d6;
+  transform: translateX(4px);
+}
+
+.nav-link:active {
+  background: #e8f4fc;
+  color: #0056b3;
+}
+
+.nav-link.active {
+  background: #e8f4fc;
+  color: #0056b3;
+  font-weight: 600;
+  border-left: 3px solid #0366d6;
+}
+
+.nav-sublist {
+  list-style: none;
+  margin: 0.5rem 0 0.5rem 1.5rem;
+  padding: 0;
+  border-left: 2px solid #e1e4e8;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease;
+  opacity: 0;
+}
+
+.nav-sublink {
+  display: block;
+  padding: 0.5rem 1rem;
+  color: #586069;
+  text-decoration: none;
+  font-size: 0.875rem;
+  transition: all 0.2s ease;
+  border-radius: 4px;
+}
+
+.nav-sublink:hover {
+  color: #0366d6;
+  background: #f1f8ff;
+  transform: translateX(4px);
+}
+
+.nav-sublink:active,
+.nav-sublink.active {
+  background: #e8f4fc;
+  color: #0056b3;
+  font-weight: 600;
+}
+
+.nav-parent > .nav-link::after {
+  content: "▾";
+  margin-left: auto;
+  font-size: 0.75rem;
+  transition: transform 0.2s ease;
+  opacity: 0.6;
+}
+
+.nav-parent.expanded > .nav-link::after {
+  transform: rotate(180deg);
+  opacity: 1;
+}
+
+.nav-parent.expanded .nav-sublist,
+.nav-parent:hover .nav-sublist {
+  max-height: 700px;
+  opacity: 1;
+}
+</style>

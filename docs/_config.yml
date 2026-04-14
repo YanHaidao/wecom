@@ -1,0 +1,28 @@
+title: WeCom 企业微信帮助文档
+description: OpenClaw WeCom 插件的接入、配置、部署与排障手册
+remote_theme: just-the-docs/just-the-docs
+
+url: https://yanhaidao.github.io
+baseurl: /wecom
+
+search_enabled: true
+heading_anchors: true
+
+plugins:
+  - jekyll-remote-theme
+
+aux_links:
+  "GitHub 仓库":
+    - "https://github.com/YanHaidao/wecom"
+
+back_to_top: true
+
+just_the_docs:
+  heading_anchors: true
+  search: true
+  kramdown:
+    anchor_links: true
+  enable_copy_button: true
+  enable_search: true
+
+css_file: "assets/css/custom.css"
