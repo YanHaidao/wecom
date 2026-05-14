@@ -156,7 +156,7 @@ body {
 
 .button-primary {
   background: var(--wecom-primary);
-  color: #ffffff !important;
+  color: #000000 !important;
   border: 1px solid var(--wecom-primary);
 }
 
@@ -166,7 +166,7 @@ body {
 
 .button-secondary {
   background: #ffffff;
-  color: var(--wecom-primary) !important;
+  color: #000000 !important;
   border: 1px solid #b9cbee;
 }
 
