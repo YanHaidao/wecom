@@ -105,6 +105,13 @@ body {
   font-weight: 500;
 }
 
+.page a.button,
+.page a.button:visited,
+.page a.button:hover,
+.page a.button:focus {
+  color: #000000 !important;
+}
+
 .hero {
   margin: -0.5rem 0 2rem;
   padding: 2.4rem;

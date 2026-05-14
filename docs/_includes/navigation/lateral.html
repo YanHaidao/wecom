@@ -2,31 +2,29 @@
   <div class="nav-group">
     <div class="nav-header">📚 文档导航</div>
     <ul class="nav-list">
-      
-      <!-- 首页 -->
       <li class="nav-item">
         <a href="{{ site.baseurl }}/" class="nav-link{% if page.url == "/" %} active{% endif %}">
           🏠 首页
         </a>
       </li>
-      
-      <!-- 快速开始 -->
+
       <li class="nav-item nav-parent {% if page.url contains 'quick-start' %}expanded{% endif %}">
         <a href="{{ site.baseurl }}/quick-start/quick-start.html" class="nav-link{% if page.url contains 'quick-start' %} active{% endif %}">
           🚀 快速开始
         </a>
         <ul class="nav-sublist">
           <li><a href="{{ site.baseurl }}/quick-start/quick-start.html" class="nav-sublink">• 快速开始指南</a></li>
-          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#前置条件" class="nav-sublink">• 前置条件</a></li>
-          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#1-安装插件" class="nav-sublink">• 安装插件</a></li>
-          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#2-准备企业微信机器人" class="nav-sublink">• 准备企业微信机器人</a></li>
-          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#3-通过向导快速接入" class="nav-sublink">• 通过向导快速接入</a></li>
-          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#4-验证运行状态" class="nav-sublink">• 验证运行状态</a></li>
-          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#5-手动配置示例" class="nav-sublink">• 手动配置示例</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#接入前准备" class="nav-sublink">• 接入前准备</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#1-安装并启用插件" class="nav-sublink">• 安装并启用插件</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#2-准备-bot-ws-凭证" class="nav-sublink">• 准备 Bot WS 凭证</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#3-用向导添加渠道" class="nav-sublink">• 用向导添加渠道</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#4-手动配置最小可用-bot-ws" class="nav-sublink">• 手动配置 Bot WS</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#5-发送第一条测试消息" class="nav-sublink">• 测试消息收发</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#6-下一步补-agent" class="nav-sublink">• 下一步补 Agent</a></li>
+          <li><a href="{{ site.baseurl }}/quick-start/quick-start.html#7-快速判断问题在哪" class="nav-sublink">• 快速判断问题</a></li>
         </ul>
       </li>
-      
-      <!-- 配置说明 -->
+
       <li class="nav-item nav-parent {% if page.url contains 'configuration' %}expanded{% endif %}">
         <a href="{{ site.baseurl }}/configuration/configuration.html" class="nav-link{% if page.url contains 'configuration' %} active{% endif %}">
           ⚙️ 配置说明
@@ -35,8 +33,7 @@
           <li><a href="{{ site.baseurl }}/configuration/configuration.html" class="nav-sublink">• 配置详解</a></li>
         </ul>
       </li>
-      
-      <!-- 上下游企业 -->
+
       <li class="nav-item nav-parent {% if page.url contains 'upstream' %}expanded{% endif %}">
         <a href="{{ site.baseurl }}/upstream/upstream.html" class="nav-link{% if page.url contains 'upstream' %} active{% endif %}">
           🔗 上下游企业
@@ -45,8 +42,7 @@
           <li><a href="{{ site.baseurl }}/upstream/upstream.html" class="nav-sublink">• 上下游企业实现</a></li>
         </ul>
       </li>
-      
-      <!-- 部署运维 -->
+
       <li class="nav-item nav-parent {% if page.url contains 'operation' %}expanded{% endif %}">
         <a href="{{ site.baseurl }}/operation/deploy.html" class="nav-link{% if page.url contains 'operation' %} active{% endif %}">
           🛠️ 部署运维
@@ -57,20 +53,17 @@
           <li><a href="{{ site.baseurl }}/operation/faq.html" class="nav-sublink">• 常见问题</a></li>
         </ul>
       </li>
-      
-      <!-- GitHub链接 -->
+
       <li class="nav-item">
-        <a href="https://github.com/YanHaidao/wecom" class="nav-link" target="_blank">
+        <a href="https://github.com/YanHaidao/wecom" class="nav-link" target="_blank" rel="noopener">
           🔗 GitHub 仓库
         </a>
       </li>
-      
     </ul>
   </div>
 </nav>
 
 <style>
-/* 导航样式 */
 #site-nav {
   width: 260px;
   min-height: 100vh;
@@ -96,7 +89,7 @@
   padding: 0.75rem 0.5rem;
   margin-bottom: 1rem;
   border-bottom: 3px solid #0366d6;
-  letter-spacing: 0.5px;
+  letter-spacing: 0;
 }
 
 .nav-list {
@@ -139,12 +132,15 @@
   border-left: 3px solid #0366d6;
 }
 
-/* 子导航 */
 .nav-sublist {
   list-style: none;
   margin: 0.5rem 0 0.5rem 1.5rem;
   padding: 0;
   border-left: 2px solid #e1e4e8;
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.3s ease-out, opacity 0.3s ease;
+  opacity: 0;
 }
 
 .nav-sublink {
@@ -163,19 +159,13 @@
   transform: translateX(4px);
 }
 
-.nav-sublink:active {
-  background: #e8f4fc;
-  color: #0056b3;
-}
-
+.nav-sublink:active,
 .nav-sublink.active {
-  color: #0056b3;
   background: #e8f4fc;
+  color: #0056b3;
   font-weight: 600;
-  border-left: 2px solid #0366d6;
 }
 
-/* 父级菜单样式 */
 .nav-parent > .nav-link::after {
   content: "▾";
   margin-left: auto;
@@ -189,17 +179,9 @@
   opacity: 1;
 }
 
-/* 展开/折叠 */
-.nav-sublist {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.3s ease-out, opacity 0.3s ease;
-  opacity: 0;
-}
-
 .nav-parent.expanded .nav-sublist,
 .nav-parent:hover .nav-sublist {
-  max-height: 500px;
+  max-height: 700px;
   opacity: 1;
 }
 </style>
