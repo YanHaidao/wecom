@@ -15,6 +15,7 @@ layout: base
   
   <link rel="stylesheet" href="{{ site.baseurl }}/assets/css/style.css">
   <link rel="stylesheet" href="{{ site.baseurl }}/assets/css/just-the-docs.css">
+  <link rel="stylesheet" href="{{ site.baseurl }}/assets/css/custom.css">
 </head>
 <body>
   <button class="mobile-nav-toggle" aria-label="切换导航">
@@ -28,13 +29,28 @@ layout: base
   <main id="main-content" class="main-content" role="main">
     <div class="content-wrapper">
       <article class="page" role="article">
+        {% unless page.hero %}
         <h1 id="page-title">{{ page.title }}</h1>
+        {% endunless %}
         {{ content }}
       </article>
     </div>
   </main>
   
   <script src="{{ site.baseurl }}/assets/js/just-the-docs.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+  <script>
+    document.querySelectorAll('pre > code.language-mermaid').forEach(function(code) {
+      const container = document.createElement('div');
+      container.className = 'mermaid';
+      container.textContent = code.textContent;
+      code.parentElement.replaceWith(container);
+    });
+
+    if (window.mermaid) {
+      window.mermaid.initialize({ startOnLoad: true, securityLevel: 'loose' });
+    }
+  </script>
   <script>
     document.addEventListener('DOMContentLoaded', function() {
       const toggle = document.querySelector('.mobile-nav-toggle');
