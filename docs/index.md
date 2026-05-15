@@ -52,6 +52,7 @@ hero: true
 
 ## 选择 Bot WS 还是 Agent
 
+
 | 你关心的事 | Bot WS | Agent 自建应用 | 推荐做法 |
 |:---|:---|:---|:---|
 | 快速跑通 | 配置轻，无需固定公网回调地址 | 需要自建应用、回调地址、Token 与 AES Key | 先用 Bot WS 验证体验 |
@@ -59,6 +60,18 @@ hero: true
 | 主动通知 | 受会话边界影响 | 更适合组织级投递、冷启动触达 | 通知与广播走 Agent |
 | 生产治理 | 适合轻量接入 | 权限、回调、安全边界更完整 | 生产环境建议补 Agent |
 | 企业协作工具 | 可承载个人身份能力入口 | 可承载应用身份能力入口 | 两者并存时能力最完整 |
+
+从用户视角看，差别不在于协议名词，而在于**你要解决的是什么问题**。
+
+| 你真正关心的事 | 🤖 Bot 模式 (WebSocket) | 🧩 Agent 模式 (自建应用 API) | ✨ 本插件的做法 |
+|:---|:---|:---|:---|
+| **先跑起来的速度** | ✅ 快，无需固定公网 IP | ❌ 较重，需要正式应用配置 | ✅ 先用 Bot 起步，后续平滑补 Agent |
+| **实时聊天体验** | ✅ 最强，天然适合低延迟和流式回复 | ⚠️ 能收能发，但不是最佳对话入口 | ✅ 默认把实时交互交给 Bot |
+| **异步结果回推** | ✅ 可以，适合已建立会话内追发 | ✅ 可以 | ✅ 会话内追发优先 Bot，必要时 Agent 兜底 |
+| **组织级广播与冷启动触达** | ⚠️ 受会话边界约束 | ✅ 更适合 | ✅ 正式通知和广播走 Agent |
+| **企业微信协作能力** | ✅ 适合个人身份能力入口 | ✅ 适合应用身份能力入口 | ✅ 两种身份平面都兼容 |
+| **适合谁** | 想快速上线、重视实时体验的团队 | 需要正式治理、自动化和组织级能力的团队 | 想同时要"体验"和"能力"的团队 |
+
 
 <div class="split-panel">
   <div>
@@ -116,34 +129,34 @@ hero: true
 | [部署运维]({{ site.baseurl }}/operation/deploy.html) | 负责上线和运行的人 | 生产环境建议、回调挂载、启动命令、升级和备份 |
 | [排障指南]({{ site.baseurl }}/operation/troubleshooting.html) | 遇到异常时的排查者 | 按状态字段和日志命名空间定位问题 |
 
-## 最近更新
+## 📌 最近更新
 
 <div class="changelog-feed">
   <div class="changelog-item">
-    <span class="changelog-date">2026.05.15</span>
+    <span class="changelog-date">v2.4.12</span>
     <div class="changelog-body">
-      <strong>文档站点上线</strong>
-      <p>帮助文档支持 GitHub Actions 自动部署，新增移动端适配、自定义主题样式与 Jekyll 搜索能力。快速开始章节补充 Bot WS 与 Agent 双模式完整接入指南。</p>
+      <strong>菜单事件路由 · 上下游互通 · Webhook 修复</strong>
+      <p>自建应用菜单事件可按规则路由到本地脚本，上下游企业可通过 Agent 渠道互通，Webhook 入站文件不再被固定 5MB 限制误拦。</p>
     </div>
   </div>
   <div class="changelog-item">
-    <span class="changelog-date">2026.04.20</span>
+    <span class="changelog-date">v2.3.27</span>
     <div class="changelog-body">
-      <strong>超时熔断代投 · 动态扩容矩阵</strong>
-      <p>Bot WS 长任务场景新增超时熔断与兜底投递，避免用户长时间等待无响应。dynamicAgents 支持按会话维度动态生成隔离 Agent，解决多人共用入口时的上下文串线问题。</p>
+      <strong>Guided Setup 回归 · SDK 兼容修复</strong>
+      <p><code>openclaw channels add</code> 重新支持 WeCom 交互式向导，修复 <code>installedCatalogById is not defined</code> 错误，清理 OpenClaw 新版下失效的旧 SDK 入口。</p>
     </div>
   </div>
   <div class="changelog-item">
-    <span class="changelog-date">2026.03.23</span>
+    <span class="changelog-date">v2.3.26</span>
     <div class="changelog-body">
-      <strong>首个稳定版本</strong>
-      <p>支持 Bot WebSocket 实时会话、自建应用 Agent 回调、媒体文件发送与多账号矩阵配置，提供 OpenClaw 向导式一键接入。</p>
+      <strong>消息不串 · 发图收尾 · 占位符修复</strong>
+      <p>升级 OpenClaw 后不再乱报错，Agent 与 Bot WS 消息链路互不串扰，Bot WS 发图后不再多冒完成提示，占位符及时结束不刷屏。</p>
     </div>
   </div>
 </div>
 
 <p class="changelog-more">
-  查看更早期关于「超时熔断代投、动态扩容矩阵」等功能的完整更新记录，请移步 <a href="{{ site.baseurl }}/changelog/">changelog</a>。
+  查看更早期的完整更新记录（含 v2.3.19、v2.3.18 等版本），请移步 <a href="{{ site.baseurl }}/changelog/">changelog</a>。
 </p>
 
 ## 推荐生产形态
