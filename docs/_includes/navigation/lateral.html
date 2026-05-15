@@ -34,6 +34,20 @@
         </ul>
       </li>
 
+      <li class="nav-item nav-parent {% if page.url contains 'dynamic-agents' %}expanded{% endif %}">
+        <a href="{{ site.baseurl }}/dynamic-agents/dynamic-agents.html" class="nav-link{% if page.url contains 'dynamic-agents' %} active{% endif %}">
+          🧭 动态 Agent
+        </a>
+        <ul class="nav-sublist">
+          <li><a href="{{ site.baseurl }}/dynamic-agents/dynamic-agents.html" class="nav-sublink">• dynamicAgents 详细说明</a></li>
+          <li><a href="{{ site.baseurl }}/dynamic-agents/dynamic-agents.html#它解决什么问题" class="nav-sublink">• 解决什么问题</a></li>
+          <li><a href="{{ site.baseurl }}/dynamic-agents/dynamic-agents.html#推荐配置" class="nav-sublink">• 推荐配置</a></li>
+          <li><a href="{{ site.baseurl }}/dynamic-agents/dynamic-agents.html#动态-agent-id-如何生成" class="nav-sublink">• ID 生成规则</a></li>
+          <li><a href="{{ site.baseurl }}/dynamic-agents/dynamic-agents.html#和上下游企业的关系" class="nav-sublink">• 和上下游企业的关系</a></li>
+          <li><a href="{{ site.baseurl }}/dynamic-agents/dynamic-agents.html#如何确认已经生效" class="nav-sublink">• 如何确认生效</a></li>
+        </ul>
+      </li>
+
       <li class="nav-item nav-parent {% if page.url contains 'upstream' %}expanded{% endif %}">
         <a href="{{ site.baseurl }}/upstream/upstream.html" class="nav-link{% if page.url contains 'upstream' %} active{% endif %}">
           🔗 上下游企业

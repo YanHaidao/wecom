@@ -110,10 +110,41 @@ hero: true
 |:---|:---|:---|
 | [快速开始]({{ site.baseurl }}/quick-start/quick-start.html) | 第一次接入的使用者 | 最小可用配置、向导接入、状态验证、第一轮测试 |
 | [配置说明]({{ site.baseurl }}/configuration/configuration.html) | 准备生产化的维护者 | 完整配置结构、字段解释、账号隔离、动态 Agent、媒体目录 |
+| [动态 Agent]({{ site.baseurl }}/dynamic-agents/dynamic-agents.html) | 多人、多群、多账号场景的维护者 | `dynamicAgents` 的配置、路由规则、会话隔离和排障方法 |
 | [上下游企业]({{ site.baseurl }}/upstream/upstream.html) | 有上下游企业协作需求的团队 | 下游企业识别、`upstreamCorps` 映射、投递链路说明 |
 | [菜单事件]({{ site.baseurl }}/functionality/menu-event.html) | 需要按钮、扫码、位置事件的开发者 | 事件白名单、路由条件、脚本处理、是否继续交给 AI |
 | [部署运维]({{ site.baseurl }}/operation/deploy.html) | 负责上线和运行的人 | 生产环境建议、回调挂载、启动命令、升级和备份 |
 | [排障指南]({{ site.baseurl }}/operation/troubleshooting.html) | 遇到异常时的排查者 | 按状态字段和日志命名空间定位问题 |
+
+## 最近更新
+
+<div class="changelog-feed">
+  <div class="changelog-item">
+    <span class="changelog-date">2026.05.15</span>
+    <div class="changelog-body">
+      <strong>文档站点上线</strong>
+      <p>帮助文档支持 GitHub Actions 自动部署，新增移动端适配、自定义主题样式与 Jekyll 搜索能力。快速开始章节补充 Bot WS 与 Agent 双模式完整接入指南。</p>
+    </div>
+  </div>
+  <div class="changelog-item">
+    <span class="changelog-date">2026.04.20</span>
+    <div class="changelog-body">
+      <strong>超时熔断代投 · 动态扩容矩阵</strong>
+      <p>Bot WS 长任务场景新增超时熔断与兜底投递，避免用户长时间等待无响应。dynamicAgents 支持按会话维度动态生成隔离 Agent，解决多人共用入口时的上下文串线问题。</p>
+    </div>
+  </div>
+  <div class="changelog-item">
+    <span class="changelog-date">2026.03.23</span>
+    <div class="changelog-body">
+      <strong>首个稳定版本</strong>
+      <p>支持 Bot WebSocket 实时会话、自建应用 Agent 回调、媒体文件发送与多账号矩阵配置，提供 OpenClaw 向导式一键接入。</p>
+    </div>
+  </div>
+</div>
+
+<p class="changelog-more">
+  查看更早期关于「超时熔断代投、动态扩容矩阵」等功能的完整更新记录，请移步 <a href="{{ site.baseurl }}/changelog/">changelog</a>。
+</p>
 
 ## 推荐生产形态
 
