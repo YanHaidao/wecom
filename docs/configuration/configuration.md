@@ -43,6 +43,10 @@ nav_order: 1
 | `dynamicAgents` | 动态会话隔离 | 多人共用、群聊、长期上下文 |
 | `network` | 代理与出网设置 | 内网、受限网络、企业代理 |
 
+在企业微信后台创建机器人或应用后，即可拿到初始凭证：
+
+![注册与创建应用]({{ site.baseurl }}/assets/configuration-images/register.png)
+
 ## 最小 Bot WS 配置
 
 适合先跑通对话，不需要固定公网 IP。
@@ -81,6 +85,16 @@ nav_order: 1
 | `bot.ws.secret` | 是 | 企业微信机器人 Secret |
 | `bot.streamPlaceholderContent` | 否 | 长任务开始前的占位提示，减少用户等待焦虑 |
 | `bot.welcomeText` | 否 | 首次接入或特定场景下的欢迎文本 |
+
+Bot 配置步骤示例：
+
+![Bot 添加步骤 1]({{ site.baseurl }}/assets/configuration-images/01.bot-add.png)
+![Bot 添加步骤 2]({{ site.baseurl }}/assets/configuration-images/01.bot-setp2.png)
+![Bot 页面概览]({{ site.baseurl }}/assets/configuration-images/03.bot.page.png)
+
+配置完成后，企业微信中的 Bot 聊天效果如下：
+
+![Bot 聊天界面]({{ site.baseurl }}/assets/configuration-images/01%20bot聊天界面.jpg)
 
 ## 生产推荐配置
 
@@ -162,6 +176,16 @@ https://你的域名/plugins/wecom/agent/default
 ```text
 https://你的域名/plugins/wecom/agent/sales
 ```
+
+Agent 配置步骤示例：
+
+![Agent 添加]({{ site.baseurl }}/assets/configuration-images/02.agent.add.png)
+![Agent API 设置]({{ site.baseurl }}/assets/configuration-images/02.agent.api-set.png)
+![Agent 页面概览]({{ site.baseurl }}/assets/configuration-images/03.agent.page.png)
+
+配置完成后，企业微信中的 Agent 聊天效果如下：
+
+![Agent 聊天界面]({{ site.baseurl }}/assets/configuration-images/02.agent聊天界面.jpg)
 
 ## 多账号配置
 
