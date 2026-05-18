@@ -32,7 +32,7 @@ nav_order: 1
 }
 ```
 
-| 区域 | 作用 | 什么时候需要关注 |
+| 🗂️ 区域 | 🎯 作用 | ⏰ 什么时候需要关注 |
 |:---|:---|:---|
 | `enabled` | 是否启用 WeCom 渠道 | 所有场景都需要 |
 | `defaultAccount` | 没有显式命中账号时的默认账号 | 单账号也建议保留 |
@@ -78,7 +78,7 @@ nav_order: 1
 
 字段说明：
 
-| 字段 | 必填 | 说明 |
+| ⚙️ 字段 | ✅ 必填 | 📝 说明 |
 |:---|:---:|:---|
 | `bot.primaryTransport` | 是 | 建议先用 `ws` |
 | `bot.ws.botId` | 是 | 企业微信机器人 ID |
@@ -156,7 +156,7 @@ Bot 配置步骤示例：
 
 ## Agent 字段说明
 
-| 字段 | 必填 | 来源 | 说明 |
+| ⚙️ 字段 | ✅ 必填 | 📄 来源 | 📝 说明 |
 |:---|:---:|:---|:---|
 | `agent.corpId` | 是 | 企业微信企业信息 | 企业 ID |
 | `agent.agentId` | 是 | 自建应用详情页 | 应用 AgentId，通常是数字 |
@@ -234,7 +234,7 @@ Agent 配置步骤示例：
 
 `dynamicAgents` 解决的是“多人共用一个入口时，如何避免上下文混在一起”。开启后，插件会按账号、会话类型和对端 ID 生成稳定的动态 Agent。
 
-| 场景 | 建议 |
+| 📍 场景 | 💡 建议 |
 |:---|:---|
 | 多个同事私聊同一个机器人 | 开启 `enabled` 和 `dmCreateAgent` |
 | 多个群长期使用同一个机器人 | 开启 `groupEnabled` |
@@ -255,6 +255,10 @@ Agent 配置步骤示例：
   }
 }
 ```
+
+dynamicAgents 配置页效果如下：
+
+![dynamicAgents 配置页]({{ site.baseurl }}/assets/configuration-images/dynamicAgents配置页.png)
 
 ## 媒体与本地文件
 

@@ -13,7 +13,7 @@ nav_order: 1
 
 企业微信里的真实使用场景往往很快从“一个人测试机器人”变成“很多人、很多群、很多业务线同时使用”。这时最怕的不是机器人慢一点，而是下面这些情况：
 
-| 场景 | 不开启 dynamicAgents 时 | 开启后 |
+| 📍 场景 | ❌ 不开启时 | ✅ 开启后 |
 |:---|:---|:---|
 | 多个同事私聊同一个机器人 | 容易共用主 Agent 的上下文 | 每个人命中自己的动态 Agent |
 | 多个群长期协作 | 群与群之间的问题、结论和记忆可能混在一起 | 每个群有独立会话空间 |
@@ -43,7 +43,7 @@ nav_order: 1
 
 字段说明：
 
-| 字段 | 默认值 | 说明 |
+| ⚙️ 字段 | 📋 默认值 | 📝 说明 |
 |:---|:---|:---|
 | `enabled` | `false` | 总开关。不开时，后面的私聊和群聊开关都不会生效 |
 | `dmCreateAgent` | `true` | 私聊是否进入动态 Agent 隔离 |
@@ -54,7 +54,7 @@ nav_order: 1
 
 ## 什么时候应该开启
 
-| 使用阶段 | 建议 | 原因 |
+| 🚀 使用阶段 | 💡 建议 | ❓ 原因 |
 |:---|:---|:---|
 | 单人 PoC | 可以先不开 | 先确认凭证、网络、消息收发是否正常 |
 | 小团队试用 | 建议开启私聊隔离 | 减少几个人共用时的上下文串线 |
@@ -74,7 +74,7 @@ wecom-{accountId}-{chatType}-{peerId}
 
 其中：
 
-| 组成 | 含义 | 示例 |
+| 🧩 组成 | 📖 含义 | 💡 示例 |
 |:---|:---|:---|
 | `accountId` | WeCom 账号 ID | `default`、`sales`、`ops` |
 | `chatType` | 会话类型 | `dm` 或 `group` |
@@ -119,7 +119,7 @@ flowchart TD
 
 `dynamicAgents` 不属于 Bot WS，也不属于 Agent。它位于消息进入 OpenClaw 之后的路由层。
 
-| 通道 | 是否受 dynamicAgents 影响 | 说明 |
+| 🔌 通道 | 🔄 是否受影响 | 📝 说明 |
 |:---|:---|:---|
 | Bot WS | 是 | v2.3.19 后，Bot WS 也会走同样的动态路由 |
 | Bot Webhook | 是 | 只要消息进入统一运行时，就会按同一套规则判断 |
@@ -145,7 +145,7 @@ wecom-ops-dm-zhangsan
 
 `dynamicAgents` 和上下游企业是平级能力，解决的问题不同：
 
-| 能力 | 解决的问题 | 典型配置 |
+| ⚡ 能力 | 🎯 解决的问题 | 🔧 典型配置 |
 |:---|:---|:---|
 | `dynamicAgents` | 消息进入 OpenClaw 后落到哪个会话 Agent | `channels.wecom.dynamicAgents` |
 | 上下游企业 | 回复或主动投递时用哪个企业身份发出去 | `accounts.<id>.agent.upstreamCorps` |
@@ -163,7 +163,7 @@ wecom-ops-dm-zhangsan
 
 它不能替代这些配置：
 
-| 你要控制的事 | 应该看哪里 |
+| 🔒 你要控制的事 | 👀 应该看哪里 |
 |:---|:---|
 | 是否允许某人私聊机器人 | `bot.dm.policy` 或 `agent.dm.policy` |
 | 哪些 userId 可以访问 | `dm.allowFrom` |
@@ -229,6 +229,11 @@ wecom-ops-dm-zhangsan
 ```
 
 命中 `adminUsers` 的用户不会进入自己的动态 Agent，而是沿用 OpenClaw 标准路由结果。
+
+配置效果示例：
+
+![dynamicAgents 展示页 1]({{ site.baseurl }}/assets/configuration-images/dynamicAgents展示页1.png)
+![dynamicAgents 展示页 2]({{ site.baseurl }}/assets/configuration-images/dynamicAgents展示页2.png)
 
 ## 如何确认已经生效
 
