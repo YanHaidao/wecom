@@ -68,6 +68,27 @@
         </ul>
       </li>
 
+      <li class="nav-item nav-parent {% if page.url contains 'release-notes' %}expanded{% endif %}">
+        <a href="{{ site.baseurl }}/release-notes/release-notes.html" class="nav-link{% if page.url contains 'release-notes' %} active{% endif %}">
+          📝 Release Notes
+        </a>
+        <ul class="nav-sublist">
+          <li><a href="{{ site.baseurl }}/release-notes/release-notes.html" class="nav-sublink">• 版本变更摘要</a></li>
+          <li><a href="{{ site.baseurl }}/release-notes/" class="nav-sublink">• 全部版本列表</a></li>
+        </ul>
+      </li>
+
+      <li class="nav-item nav-parent {% if page.url contains 'about' %}expanded{% endif %}">
+        <a href="{{ site.baseurl }}/about/" class="nav-link{% if page.url contains 'about' %} active{% endif %}">
+          ℹ️ 关于项目
+        </a>
+        <ul class="nav-sublist">
+          <li><a href="{{ site.baseurl }}/about/originality.html" class="nav-sublink">• 原创声明</a></li>
+          <li><a href="{{ site.baseurl }}/about/contributors.html" class="nav-sublink">• 贡献者</a></li>
+          <li><a href="{{ site.baseurl }}/about/development.html" class="nav-sublink">• 开发指南</a></li>
+        </ul>
+      </li>
+
       <li class="nav-item">
         <a href="https://github.com/YanHaidao/wecom" class="nav-link" target="_blank" rel="noopener">
           🔗 GitHub 仓库

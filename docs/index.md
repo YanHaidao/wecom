@@ -128,6 +128,8 @@ hero: true
 | [菜单事件]({{ site.baseurl }}/functionality/menu-event.html) | 需要按钮、扫码、位置事件的开发者 | 事件白名单、路由条件、脚本处理、是否继续交给 AI |
 | [部署运维]({{ site.baseurl }}/operation/deploy.html) | 负责上线和运行的人 | 生产环境建议、回调挂载、启动命令、升级和备份 |
 | [排障指南]({{ site.baseurl }}/operation/troubleshooting.html) | 遇到异常时的排查者 | 按状态字段和日志命名空间定位问题 |
+| [Release Notes]({{ site.baseurl }}/release-notes/release-notes.html) | 关注版本迭代的用户 | 各版本新增能力、重要修复与升级建议 |
+| [关于项目]({{ site.baseurl }}/about/) | 想了解项目背景的人 | 原创声明、贡献者名单、开发指南 |
 
 ## 📌 最近更新
 
@@ -156,7 +158,7 @@ hero: true
 </div>
 
 <p class="changelog-more">
-  查看更早期的完整更新记录（含 v2.3.19、v2.3.18 等版本），请移步 <a href="{{ site.baseurl }}/changelog/">changelog</a>。
+  查看更早期的完整更新记录（含 v2.3.19、v2.3.18 等版本），请移步 <a href="{{ site.baseurl }}/release-notes/">Release Notes</a>。
 </p>
 
 ## 推荐生产形态
