@@ -213,11 +213,11 @@ flowchart LR
 
 感谢所有为本项目提交代码、测试、文档与反馈的协作者。
 
-<p align="center">
+<div style="overflow-x: auto; text-align: center;">
   <a href="https://github.com/YanHaidao/wecom/graphs/contributors">
-    <img src="https://contrib.rocks/image?repo=YanHaidao/wecom" alt="WeCom contributors" />
+    <img src="https://contrib.rocks/image?repo=YanHaidao/wecom" alt="WeCom contributors" style="max-width: none; height: auto;" />
   </a>
-</p>
+</div>
 
 如果头像墙没有立刻刷新，通常是 GitHub 统计或第三方缓存延迟，稍后再看即可。
 
