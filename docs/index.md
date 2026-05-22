@@ -1,6 +1,6 @@
 ---
 layout: default
-title: 文档首页
+title: 首页
 nav_order: 1
 has_children: true
 hero: true

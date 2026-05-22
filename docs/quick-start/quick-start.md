@@ -1,6 +1,6 @@
 ---
 layout: default
-title: 快速开始
+title: 快速开始指南
 parent: 快速开始
 nav_order: 1
 ---
@@ -8,7 +8,6 @@ nav_order: 1
 这一页帮你用最短路径把 `wecom` 跑起来。推荐先接 Bot WS，因为它不要求固定公网回调地址，适合先验证企业微信里的真实对话体验；确认可用后，再补 Agent 做正式回调、菜单事件和主动投递。
 
 ## 接入前准备
-{: #前置条件 }
 
 | 准备项 | 要求 | 说明 |
 |:---|:---|:---|
@@ -18,7 +17,6 @@ nav_order: 1
 | 运行环境 | Node.js 18+ | 生产环境建议使用受控进程管理方式 |
 
 ## 1. 安装并启用插件
-{: #1-安装插件 }
 
 ```bash
 openclaw plugins install @yanhaidao/wecom
@@ -34,7 +32,6 @@ openclaw channels list
 如果列表里能看到 `wecom`，说明插件已经进入 OpenClaw 的渠道目录。
 
 ## 2. 准备 Bot WS 凭证
-{: #2-准备企业微信机器人 }
 
 在企业微信管理后台进入 **工作台 / 智能机器人** 或对应的机器人管理页面，创建一个用于 OpenClaw 的机器人。你需要记录：
 
@@ -44,7 +41,6 @@ openclaw channels list
 如果你当前后台使用的是自建应用入口，也可以先记录自建应用的 `AgentId` 与 `Secret`，后续 Agent 模式还会用到 `CorpID`、回调 `Token` 和 `EncodingAESKey`。
 
 ## 3. 用向导添加渠道
-{: #3-通过向导快速接入 }
 
 ```bash
 openclaw channels add
@@ -69,7 +65,6 @@ openclaw channels status --probe
 | `lastError` | 空或非持续刷新 | 没有持续性运行错误 |
 
 ## 4. 手动配置最小可用 Bot WS
-{: #5-手动配置示例 }
 
 如果你不使用向导，可以在 OpenClaw 配置中加入最小配置：
 
@@ -106,7 +101,6 @@ export WECOM_BOT_SECRET="your-bot-secret"
 ```
 
 ## 5. 发送第一条测试消息
-{: #4-验证运行状态 }
 
 1. 在企业微信里找到刚创建的机器人或应用。
 2. 发送一句简单消息，例如“你好，帮我总结一下今天要做什么”。

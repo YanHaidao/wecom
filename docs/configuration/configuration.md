@@ -1,6 +1,6 @@
 ---
 layout: default
-title: 配置说明
+title: 完整配置说明
 parent: 配置说明
 nav_order: 1
 ---
