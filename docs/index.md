@@ -125,6 +125,11 @@ hero: true
     <strong>按症状排障</strong>
     <small>连接失败、消息不回、媒体发送失败、上下游投递异常。</small>
   </a>
+  <a class="path-item" href="{{ site.baseurl }}/about/development.html">
+    <span>🧑‍💻 路径 E</span>
+    <strong>参与开发</strong>
+    <small>环境搭建、仓库结构、本地调试、测试与代码提交规范。</small>
+  </a>
 </div>
 
 ## 文档地图
@@ -139,7 +144,8 @@ hero: true
 | [部署运维]({{ site.baseurl }}/operation/deploy.html) | 负责上线和运行的人 | 生产环境建议、回调挂载、启动命令、升级和备份 |
 | [排障指南]({{ site.baseurl }}/operation/troubleshooting.html) | 遇到异常时的排查者 | 按状态字段和日志命名空间定位问题 |
 | [Release Notes]({{ site.baseurl }}/release-notes/release-notes.html) | 关注版本迭代的用户 | 各版本新增能力、重要修复与升级建议 |
-| [关于项目]({{ site.baseurl }}/about/) | 想了解项目背景的人 | 原创声明、贡献者名单、开发指南 |
+| [关于项目]({{ site.baseurl }}/about/) | 想了解项目背景的人 | 原创声明、贡献者名单 |
+| [开发指南]({{ site.baseurl }}/about/development.html) | 希望贡献代码或二次开发的人 | 环境搭建、仓库结构、测试、事件脚本协议、提交规范 |
 
 ## 📌 最近更新
 

@@ -118,53 +118,10 @@ openclaw channels status --probe
 openclaw channels logs --channel wecom --lines 200
 ```
 
-## 6. 下一步补 Agent
+## 6. 下一步
 
-当 Bot WS 已经跑通后，如果你需要以下能力，就应继续配置 Agent：
+Bot WS 跑通后，如果你需要回调事件、主动推送、菜单事件或更正式的权限治理，请继续阅读：
 
-- 企业微信后台回调事件，例如菜单点击、扫码、上报地理位置。
-- 主动给用户、部门、标签或上下游企业发送消息。
-- 更正式的权限治理、回调验签和应用身份能力。
-- Bot WS 之外的兜底投递链路。
-
-Agent 的最小配置示例：
-
-```json
-{
-  "channels": {
-    "wecom": {
-      "accounts": {
-        "default": {
-          "agent": {
-            "corpId": "${WECOM_CORP_ID}",
-            "agentId": 1000001,
-            "agentSecret": "${WECOM_AGENT_SECRET}",
-            "token": "${WECOM_CALLBACK_TOKEN}",
-            "encodingAESKey": "${WECOM_ENCODING_AES_KEY}"
-          }
-        }
-      }
-    }
-  }
-}
-```
-
-Agent 配置完成后，需要在企业微信后台把回调 URL 指向：
-
-```text
-https://你的域名/plugins/wecom/agent/default
-```
-
-如果你的账号不是 `default`，把路径末尾换成对应的 `accountId`。
-
-## 7. 快速判断问题在哪
-
-| 现象 | 优先检查 | 常见原因 |
-|:---|:---|:---|
-| `configured=false` | 配置结构与字段名 | `accounts` 层级错误、缺少 `bot.ws.secret` |
-| `connected=false` | Bot WS 网络与凭证 | Secret 错误、服务器不能出网、机器人未启用 |
-| 企业微信后台回调保存失败 | Agent 回调 URL | 域名不可访问、Token/AES Key 不一致、HTTPS 证书异常 |
-| 能收不能发 | 投递链路和可见范围 | 应用可见范围未包含用户、AgentId 错误 |
-| 本地图片或文件发不出 | `media.localRoots` 与大小限制 | 文件目录未放行、超过 `mediaMaxMb` |
-
-更完整的定位步骤请继续看 [排障指南]({{ site.baseurl }}/operation/troubleshooting.html)。
+- [配置说明]({{ site.baseurl }}/configuration/configuration.html) — 完整配置结构、字段解释、多账号矩阵、dynamicAgents、媒体目录
+- [部署与发布]({{ site.baseurl }}/operation/deploy.html) — 生产环境部署、回调挂载、启动命令、升级策略
+- [排障指南]({{ site.baseurl }}/operation/troubleshooting.html) — 按状态字段和日志命名空间定位问题
