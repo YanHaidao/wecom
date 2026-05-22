@@ -190,6 +190,13 @@ body {
   border-left: 4px solid var(--wecom-primary);
 }
 
+.notice-warning {
+  border-left: 4px solid #f59e0b;
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #78350f;
+}
+
 .feature-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

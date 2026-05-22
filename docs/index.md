@@ -23,7 +23,17 @@ hero: true
   <strong>建议阅读顺序：</strong> 先用 Bot WS 跑通收发，再按生产需求补齐 Agent、动态路由、媒体目录和上下游企业配置。这样可以先得到可用体验，再逐步加上企业级治理能力。
 </div>
 
+<<<<<<< HEAD
 ## 这个插件解决什么问题
+=======
+<div class="notice notice-warning">
+  <strong>⚠️ 原创声明</strong>
+  <p>本项目涉及的「多账号隔离与矩阵路由架构」、「Bot+Agent 双模融合架构」、「长任务超时接力逻辑」及「全自动媒体流转接」等核心设计均为作者 <strong>YanHaidao</strong> 独立思考与实践的原创成果。</p>
+  <p>欢迎技术交流与合规引用，但严禁任何不经授权的「功能像素级抄袭」或删除原作者署名的代码搬运行为。</p>
+</div>
+
+## 💡 这个插件解决什么问题
+>>>>>>> 72e90f3 (feat：将原创说明移至首页)
 
 企业真正需要的通常不是“把模型接进企业微信”，而是让企业微信成为一个稳定的 AI 工作入口：多人同时使用不串上下文，长任务不会因为响应窗口过短而丢失结果，日常聊天和正式投递可以走各自更合适的链路。
 
@@ -188,3 +198,26 @@ flowchart LR
 - 涉及本地文件发送时，已配置必要的 `media.localRoots`，且没有放开过大的目录。
 - 多人、群聊或多账号场景已评估是否开启 `dynamicAgents`。
 - 上下游企业场景已配置 `agent.upstreamCorps` 并完成企业微信后台应用共享。
+
+
+
+---
+
+## 🤝 项目协作者
+
+感谢所有为本项目提交代码、测试、文档与反馈的协作者。
+
+<p align="center">
+  <a href="https://github.com/YanHaidao/wecom/graphs/contributors">
+    <img src="https://contrib.rocks/image?repo=YanHaidao/wecom" alt="WeCom contributors" />
+  </a>
+</p>
+
+如果头像墙没有立刻刷新，通常是 GitHub 统计或第三方缓存延迟，稍后再看即可。
+
+---
+
+## 📝 更新日志
+
+查看更早期关于「超时熔断代投、动态扩容矩阵」等功能的更新记录，请移步 [changelog]({{ site.baseurl }}/changelog/)。
+
