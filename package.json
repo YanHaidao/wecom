@@ -68,10 +68,5 @@
       "localPath": "extensions/wecom",
       "defaultChoice": "npm"
     }
-  },
-  "keywords": [],
-  "bugs": {
-    "url": "https://github.com/YanHaidao/wecom/issues"
-  },
-  "homepage": "https://github.com/YanHaidao/wecom#readme"
+  }
 }
