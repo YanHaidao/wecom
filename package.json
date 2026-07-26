@@ -31,13 +31,13 @@
     "undici": "^7.20.0"
   },
   "devDependencies": {
-    "@types/node": "^25.2.0",
-    "openclaw": "^2026.3.23-2",
+    "@types/node": "^22.22.0",
+    "openclaw": "^2026.7.0",
     "typescript": "^5.9.3",
     "vitest": "^2.1.8"
   },
   "peerDependencies": {
-    "openclaw": "^2026.3.23-2"
+    "openclaw": "^2026.7.0"
   },
   "openclaw": {
     "extensions": [
