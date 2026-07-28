@@ -188,7 +188,9 @@ describe("Monitor Active Features", () => {
         const streamId = Buffer.alloc(16, 0x11).toString("hex");
 
         undiciFetch.mockResolvedValue(new Response("ok", { status: 200 }));
-        await sendActiveMessage(streamId, "Active Hello");
+        const sendPromise = sendActiveMessage(streamId, "Active Hello");
+        await vi.advanceTimersByTimeAsync(1100);
+        await sendPromise;
 
         expect(undiciFetch).toHaveBeenCalled();
         const [url, init] = undiciFetch.mock.calls.at(-1)! as [string, RequestInit];
@@ -227,8 +229,8 @@ describe("Monitor Active Features", () => {
 
         undiciFetch.mockResolvedValue(new Response("ok", { status: 200 }));
 
+        vi.useRealTimers();
         await capturedDeliver!({ text: "here", mediaUrls: [tmp] } as any);
-
         expect(uploadMedia).toHaveBeenCalled();
         expect(sendMedia).toHaveBeenCalledWith(
             expect.objectContaining({

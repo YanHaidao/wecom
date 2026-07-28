@@ -46,6 +46,8 @@ export type WecomBotConfig = {
    * being extracted into transport adapters.
    */
   aibotid?: string;
+  token?: string;
+  encodingAESKey?: string;
   botIds?: string[];
   ws?: WecomBotWsConfig;
   webhook?: WecomBotWebhookConfig;
