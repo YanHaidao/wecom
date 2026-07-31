@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   DEFAULT_WECOM_MARKDOWN_FORMAT,
   prepareWecomMarkdownChunks,
+  prepareWecomTextChunks,
   resolveWecomMarkdownFormat,
 } from "./markdown.js";
 import { toWeComMarkdownV2 } from "../wecom_msg_adapter/markdown_adapter.js";
+import { utf8ByteLength } from "../shared/byte-chunking.js";
 
 function cfg(wecom: Record<string, unknown>) {
   return { channels: { wecom: { enabled: true, ...wecom } } } as never;
@@ -85,7 +87,7 @@ describe("prepareWecomMarkdownChunks", () => {
 
     expect(chunks.length).toBeGreaterThan(1);
     for (const chunk of chunks) {
-      expect(chunk.length).toBeLessThanOrEqual(500);
+      expect(utf8ByteLength(chunk)).toBeLessThanOrEqual(500);
     }
     // Nothing dropped: every image survives somewhere in the output.
     const joined = chunks.join("");
@@ -120,5 +122,69 @@ describe("prepareWecomMarkdownChunks", () => {
 
   it("returns a single chunk when the converted text fits", () => {
     expect(prepareWecomMarkdownChunks("# hello", 2048)).toEqual([toWeComMarkdownV2("# hello")]);
+  });
+
+  it("treats the limit as bytes, so Chinese splits well before 2048 characters", () => {
+    // 2048 个中文字符约 6144 字节。按字符切会返回单片并被企微静默截断。
+    const text = "中".repeat(2048);
+    const chunks = prepareWecomMarkdownChunks(text, 2048);
+
+    expect(chunks.length).toBeGreaterThan(2);
+    for (const chunk of chunks) {
+      expect(utf8ByteLength(chunk)).toBeLessThanOrEqual(2048);
+    }
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("does not over-split ASCII that already fits in bytes", () => {
+    // 密度为 1，2048 字节 = 2048 字符，不该有额外分片。
+    const text = "a".repeat(2000);
+    expect(prepareWecomMarkdownChunks(text, 2048)).toEqual([toWeComMarkdownV2(text)]);
+  });
+
+  it("keeps emoji intact when the byte limit forces a split", () => {
+    // 每个 emoji 4 字节，切错会留下半个代理对（渲染成 U+FFFD）。
+    const text = "😀".repeat(200);
+    const chunks = prepareWecomMarkdownChunks(text, 100);
+
+    for (const chunk of chunks) {
+      expect(utf8ByteLength(chunk)).toBeLessThanOrEqual(100);
+      expect(Buffer.from(chunk, "utf8").toString("utf8")).toBe(chunk);
+    }
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("applies batchChars as a tighter granularity without losing the byte ceiling", () => {
+    const text = Array.from({ length: 40 }, (_, i) => `第 ${i} 行说明文字内容`).join("\n");
+    const chunks = prepareWecomMarkdownChunks(text, 2048, 100);
+
+    // 按 100 字符分批，所以片数远多于只受 2048 字节约束时。
+    expect(chunks.length).toBeGreaterThan(3);
+    for (const chunk of chunks) {
+      expect(utf8ByteLength(chunk)).toBeLessThanOrEqual(2048);
+    }
+  });
+});
+
+describe("prepareWecomTextChunks", () => {
+  const byChars = (text: string, limit: number): string[] => {
+    const out: string[] = [];
+    for (let i = 0; i < text.length; i += limit) out.push(text.slice(i, i + limit));
+    return out;
+  };
+
+  it("holds Chinese text to the byte limit", () => {
+    const text = "企业微信消息".repeat(400);
+    const chunks = prepareWecomTextChunks(text, 2048, byChars);
+
+    expect(chunks.length).toBeGreaterThan(1);
+    for (const chunk of chunks) {
+      expect(utf8ByteLength(chunk)).toBeLessThanOrEqual(2048);
+    }
+    expect(chunks.join("")).toBe(text);
+  });
+
+  it("leaves short text as one chunk", () => {
+    expect(prepareWecomTextChunks("hello", 2048, byChars)).toEqual(["hello"]);
   });
 });

@@ -26,6 +26,7 @@ export {
 export {
   normalizeWecomMarkdownFormat,
   prepareWecomMarkdownChunks,
+  prepareWecomTextChunks,
   resolveWecomMarkdownFormat,
   type WecomMarkdownFormat,
 } from "./markdown.js";

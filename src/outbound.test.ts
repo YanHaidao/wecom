@@ -3,6 +3,7 @@ import path from "node:path";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotWsPushHandle } from "./app/index.js";
+import { utf8ByteLength } from "./shared/byte-chunking.js";
 
 vi.mock("./transport/agent-api/core.js", () => ({
   sendMarkdown: vi.fn(),
@@ -361,11 +362,41 @@ describe("wecomOutbound", () => {
     const calls = (api.sendMarkdown as any).mock.calls;
     expect(calls.length).toBeGreaterThan(1);
     for (const [arg] of calls) {
-      expect(arg.text.length).toBeLessThanOrEqual(2048);
+      expect(utf8ByteLength(arg.text)).toBeLessThanOrEqual(2048);
     }
     // No content lost: every chunk together still carries all the links.
     const joined = calls.map(([arg]: any[]) => arg.text).join("\n");
     expect(joined).toContain("example.com/some/image/path.png");
+  });
+
+  it("splits long Chinese replies on bytes, not characters", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const api = await import("./transport/agent-api/core.js");
+    (api.sendText as any).mockClear();
+    (api.sendText as any).mockResolvedValue({ msgid: "cn-1" });
+
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          agent: { corpId: "corp", corpSecret: "secret", agentId: 1000002, token: "t", encodingAESKey: "a" },
+        },
+      },
+    };
+
+    // Under 2048 characters but well over 2048 bytes — WeCom would truncate it.
+    const text = "企业微信长文本消息".repeat(167);
+    expect(text.length).toBeLessThan(2048);
+    expect(utf8ByteLength(text)).toBeGreaterThan(2048);
+
+    await wecomOutbound.sendText({ cfg, to: "user:zhangsan", text } as any);
+
+    const calls = (api.sendText as any).mock.calls;
+    expect(calls.length).toBeGreaterThan(1);
+    for (const [arg] of calls) {
+      expect(utf8ByteLength(arg.text)).toBeLessThanOrEqual(2048);
+    }
+    expect(calls.map(([arg]: any[]) => arg.text).join("")).toBe(text);
   });
 
   it("suppresses /new ack for bot sessions but not agent sessions", async () => {

@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { utf8ByteLength } from "../../shared/byte-chunking.js";
 
 vi.mock("../../transport/agent-api/core.js", () => ({
   sendText: vi.fn(),
@@ -96,8 +97,44 @@ describe("sendAgentDmText (bot timeout fallback)", () => {
     const calls = (api.sendMarkdown as never as { mock: { calls: [{ text: string }][] } }).mock.calls;
     expect(calls.length).toBeGreaterThan(1);
     for (const [arg] of calls) {
-      expect(arg.text.length).toBeLessThanOrEqual(2048);
+      expect(utf8ByteLength(arg.text)).toBeLessThanOrEqual(2048);
     }
     expect(calls.map(([arg]) => arg.text).join("\n")).toContain("example.com/some/image/path.png");
+  });
+
+  it("splits long Chinese text on bytes, not characters", async () => {
+    const { sendAgentDmText } = await import("./fallback-delivery.js");
+    const api = await import("../../transport/agent-api/core.js");
+
+    // 1500 个中文字符：低于 2048 字符，但约 4500 字节，远超 2048 字节上限。
+    const text = "企业微信长文本消息".repeat(167);
+    expect(text.length).toBeLessThan(2048);
+    expect(utf8ByteLength(text)).toBeGreaterThan(2048);
+
+    // 用真实的按字符分片器，identity chunker 会掩盖字节收敛。
+    await sendAgentDmText({
+      agent,
+      userId: "zhangsan",
+      text,
+      core: {
+        channel: {
+          text: {
+            chunkText: (value: string, limit: number) => {
+              const out: string[] = [];
+              for (let i = 0; i < value.length; i += limit) out.push(value.slice(i, i + limit));
+              return out;
+            },
+          },
+        },
+      } as never,
+      cfg: cfgWith(),
+    });
+
+    const calls = (api.sendText as never as { mock: { calls: [{ text: string }][] } }).mock.calls;
+    expect(calls.length).toBeGreaterThan(1);
+    for (const [arg] of calls) {
+      expect(utf8ByteLength(arg.text)).toBeLessThanOrEqual(2048);
+    }
+    expect(calls.map(([arg]) => arg.text).join("")).toBe(text);
   });
 });

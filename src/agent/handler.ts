@@ -21,6 +21,8 @@ import {
   ensureDynamicAgentListed,
 } from "../dynamic-agent.js";
 import { setPeerContext } from "../context-store.js";
+import { chunkTextToByteLimit } from "../shared/byte-chunking.js";
+import { MESSAGE_BYTE_LIMITS } from "../types/constants.js";
 import { getWecomRuntime } from "../runtime.js";
 import { registerWecomSourceSnapshot } from "../runtime/source-registry.js";
 import {
@@ -63,8 +65,13 @@ import { detectUpstreamUser, createUpstreamAgentConfig, resolveUpstreamCorpConfi
 /** 错误提示信息 */
 const ERROR_HELP = "\n\n遇到问题？联系作者: YanHaidao (微信: YanHaidao)";
 
-/** Agent 回调回复的分片上限，沿用既有值（低于企微 2048 上限）。 */
-const AGENT_REPLY_CHUNK_LIMIT = 600;
+/**
+ * Agent 回调回复的分片粒度，单位是字符。
+ *
+ * 沿用既有的 600：远低于企微 2048 字节上限，是刻意的——分批发送让用户
+ * 更早看到内容。所以这里保留字符语义，字节上限由下面的 byte-chunking 兜。
+ */
+const AGENT_REPLY_CHUNK_CHARS = 600;
 
 /** 定长切分，等价于原先内联的 `slice(i, i + MAX_CHUNK_SIZE)` 循环。 */
 function sliceByLength(text: string, limit: number): string[] {
@@ -73,6 +80,16 @@ function sliceByLength(text: string, limit: number): string[] {
     chunks.push(text.slice(i, i + limit));
   }
   return chunks;
+}
+
+/**
+ * 600 字符在多数内容下远低于 2048 字节，但不是所有：emoji 每字符 4 字节，
+ * 600 个就是 2400 字节，会超限被企微截断。所以切完再过一遍字节上限。
+ */
+function enforceReplyByteLimit(chunks: string[]): string[] {
+  return chunks.flatMap((chunk) =>
+    chunkTextToByteLimit(chunk, MESSAGE_BYTE_LIMITS.AGENT_MESSAGE, sliceByLength),
+  );
 }
 
 // Agent webhook 幂等去重池（防止企微回调重试导致重复回复）
@@ -988,9 +1005,14 @@ async function processAgentMessage(params: {
 
           // 纯文本沿用既有的定长切分；markdown 必须先整体转换再按语法边界分片，
           // 否则转换后超限会被截断、`**bold**` 会被从中间劈开。
+          // 两条路径都再过一遍字节上限（600 字符的 emoji 可达 2400 字节）。
           const replyChunks = asMarkdown
-            ? prepareWecomMarkdownChunks(outboundText, AGENT_REPLY_CHUNK_LIMIT)
-            : sliceByLength(outboundText, AGENT_REPLY_CHUNK_LIMIT);
+            ? prepareWecomMarkdownChunks(
+                outboundText,
+                MESSAGE_BYTE_LIMITS.AGENT_MESSAGE,
+                AGENT_REPLY_CHUNK_CHARS,
+              )
+            : enforceReplyByteLimit(sliceByLength(outboundText, AGENT_REPLY_CHUNK_CHARS));
 
           // 标记已有回复，清除/失效定时器
           hasResponseSent = true;

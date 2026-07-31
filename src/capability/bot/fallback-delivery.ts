@@ -2,10 +2,11 @@ import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
 import {
   prepareWecomMarkdownChunks,
+  prepareWecomTextChunks,
   resolveWecomAccount,
   resolveWecomMarkdownFormat,
 } from "../../config/index.js";
-import { WECOM_TEXT_CHUNK_LIMIT } from "../agent/delivery-service.js";
+import { WECOM_TEXT_CHUNK_BYTE_LIMIT } from "../agent/delivery-service.js";
 import { wecomFetch } from "../../http.js";
 import { LIMITS } from "../../monitor/state.js";
 import type { StreamState } from "../../types/legacy-stream.js";
@@ -110,9 +111,13 @@ export async function sendAgentDmText(params: {
   // Bot 超时兜底的 Agent 私信同样不经过 wecomOutbound，所以在这里解析账号配置。
   const asMarkdown =
     resolveWecomMarkdownFormat(params.cfg, params.agent.accountId) === "markdown";
+  // 这条兜底路径走的是 Agent message/send（不是群机器人 webhook），
+  // 所以上限是 2048 字节。
   const chunks = asMarkdown
-    ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_LIMIT)
-    : params.core.channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
+    ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT)
+    : prepareWecomTextChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT, (value, charLimit) =>
+        params.core.channel.text.chunkText(value, charLimit),
+      );
   const send = asMarkdown ? sendAgentMarkdown : sendAgentText;
   for (const chunk of chunks) {
     const trimmed = chunk.trim();

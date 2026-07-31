@@ -41,18 +41,36 @@ OpenClaw 的既有模型（`docs/concepts/markdown-formatting.md`）是：Agent 
 `prepareWecomMarkdownChunks()`（`src/config/markdown.ts`）先整体转换再分片：
 
 ```typescript
-chunkMarkdownText(toWeComMarkdownV2(text), limit)
+chunkTextToByteLimit(toWeComMarkdownV2(text), maxBytes, chunkMarkdownText)
 ```
 
 顺序不能颠倒。`toWeComMarkdownV2` 不保证收缩文本——实测图片密集内容 1179 → 1239 字符（约 +5%），先分片再转换会让超出上限的部分被 `truncateSafely` 静默吃掉。
 
-分片用 SDK 的 `chunkMarkdownText` 而非 `chunkText`：定长切分会把 `**bold**`、`[text](url)` 从中间劈开，两半都渲染不出来。`chunkMarkdownText` 按行与代码围栏边界切，且每片重开围栏。
+断点仍交给 SDK 的 `chunkMarkdownText` 而非定长切分：定长会把 `**bold**`、`[text](url)` 从中间劈开，两半都渲染不出来。`chunkMarkdownText` 按行与代码围栏边界切，且每片重开围栏。
 
-**纯文本路径未改动**：各发送点保持各自既有的分片方式（`handler.ts` 定长 600、其余走 `chunkText` 2048）。默认配置是纯文本，所以升级不改变任何现有账号的表现。
+### 长度上限：字节，不是字符
+
+企微手册的长度限制**全部以字节计**，而 SDK 的 `chunkText` / `chunkMarkdownText` 按字符（UTF-16 code unit）切。纯中文每字符 3 字节，把字节上限当字符上限用会超出 3 倍，而企微对 text 是「超过将截断」——不报错，内容被静默吃掉。
+
+各路径的真实上限（`MESSAGE_BYTE_LIMITS`，`src/types/constants.ts`）：
+
+| 路径 | msgtype | 上限 | 出处 |
+|---|---|---|---|
+| `message/send` 自建应用 | text / markdown | 2048 字节 | [手册 90236](https://developer.work.weixin.qq.com/document/path/90236) |
+| `appchat/send` 群会话 | text | 2048 字节 | [手册 90248](https://developer.work.weixin.qq.com/document/path/90248) |
+| 群机器人 webhook | text | 2048 字节 | [手册 91770](https://developer.work.weixin.qq.com/document/path/91770) |
+| 群机器人 webhook | markdown / markdown_v2 | 4096 字节 | 同上 |
+| 智能机器人 WS 流式 | `stream.content` | 20480 字节 | `@wecom/aibot-node-sdk` 的 `StreamReplyBody` |
+
+`chunkTextToByteLimit()`（`src/shared/byte-chunking.ts`）负责收敛：按该段文本的**实际字节密度**折算字符上限（不是固定除 3 或除 4——纯 ASCII 密度为 1，折算后等于字节上限本身，不会白白多切一刀），切完校验字节数，超了就按 0.8 收紧重试，最多 6 轮后按字节硬切。硬切用 `for...of` 遍历码点，emoji 的代理对不会被劈成半个字符。
+
+`handler.ts` 的 600 保留字符语义：它远低于 2048 字节是刻意的，分批发送让用户更早看到内容。但 600 个 emoji 是 2400 字节，所以切完仍要过一遍字节上限。
 
 ### 涉及文件
 
-- `src/config/markdown.ts`（新）：`resolveWecomMarkdownFormat`、`prepareWecomMarkdownChunks`、`normalizeWecomMarkdownFormat`
+- `src/shared/byte-chunking.ts`（新）：`chunkTextToByteLimit`、`splitByUtf8Bytes`、`utf8ByteLength`
+- `src/types/constants.ts`：`MESSAGE_BYTE_LIMITS`（替换原先零引用且命名误导的 `LIMITS.TEXT_MAX_BYTES`）
+- `src/config/markdown.ts`（新）：`resolveWecomMarkdownFormat`、`prepareWecomMarkdownChunks`、`prepareWecomTextChunks`、`normalizeWecomMarkdownFormat`
 - `src/config/schema.ts`：`MarkdownConfig` 挂到 `AccountConfig.markdown` 与 `WecomConfigInput.markdown`
 - `src/config/index.ts`：re-export
 - `src/transport/agent-api/core.ts`：`sendMarkdown()`，走 `message/send` 的 `msgtype: "markdown"`
@@ -152,7 +170,6 @@ peerDependency 仍是 `^2026.7.0`，运行时是 `2026.7.1-2`（带构建后缀�
 
 ## 已知遗留（与本功能无关的既有问题）
 
-- `src/monitor.active.test.ts` 的两个用例超时：测试用 fake timers，但 `useActiveReplyOnce`（`src/transport/bot-webhook/active-reply.ts:19`）里有真实 `setTimeout(1000)`，永远不会被推进
 - `src/channel.config.test.ts` 的两个冲突守卫用例失败：测试用扁平的 `bot: { token, encodingAESKey }`，而 `resolveBotAccount`（`src/config/accounts.ts:38`）读的是 `bot.webhook.token`
 - `src/channel.lifecycle.test.ts` / `src/onboarding.test.ts` 无法加载：import 的是仓库外路径（`../../test-utils/`、`../../../src/channels/`）
 

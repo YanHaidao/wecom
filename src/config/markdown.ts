@@ -2,6 +2,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { chunkMarkdownText } from "openclaw/plugin-sdk/reply-runtime";
 import { resolveDefaultWecomAccountId } from "./accounts.js";
 import { toWeComMarkdownV2 } from "../wecom_msg_adapter/markdown_adapter.js";
+import { chunkTextToByteLimit } from "../shared/byte-chunking.js";
 
 /**
  * 企业微信文本渲染格式，按渠道/账号配置。
@@ -56,16 +57,37 @@ export function resolveWecomMarkdownFormat(
 }
 
 /**
- * markdown 发送前的文本处理：先整体转换，再按 markdown 语法边界分片。
+ * markdown 发送前的文本处理：先整体转换，再按 markdown 语法边界分片到字节上限。
  *
  * 顺序不能颠倒：`toWeComMarkdownV2` 不保证收缩文本（图片密集内容实测 +5%），
  * 先分片再转换会让超出上限的部分被截断。
  *
- * 分片用 chunkMarkdownText 而非定长切分，否则 `**bold**` 或 `[text](url)`
+ * `maxBytes` 是 UTF-8 字节数，不是字符数——企微手册的限制都以字节计。
+ * 断点仍由 chunkMarkdownText 选，否则 `**bold**` 或 `[text](url)`
  * 会被从中间劈开，两半都渲染不出来。
  *
- * 纯文本路径不经过这里——各发送点保持各自既有的分片方式。
+ * `batchChars` 用于希望比字节上限更早分片的调用方（Agent 回调按 600 字符
+ * 分批，让用户更早看到内容）。它只收紧粒度，字节上限仍然生效。
  */
-export function prepareWecomMarkdownChunks(text: string, chunkLimit: number): string[] {
-  return chunkMarkdownText(toWeComMarkdownV2(text), chunkLimit);
+export function prepareWecomMarkdownChunks(
+  text: string,
+  maxBytes: number,
+  batchChars?: number,
+): string[] {
+  const converted = toWeComMarkdownV2(text);
+  const batched = batchChars ? chunkMarkdownText(converted, batchChars) : [converted];
+  return batched.flatMap((piece) => chunkTextToByteLimit(piece, maxBytes, chunkMarkdownText));
+}
+
+/**
+ * 纯文本发送前的分片，同样收到字节上限。
+ *
+ * 断点交给 SDK 的 chunkText（优先换行、其次空白），避免在词中间断开。
+ */
+export function prepareWecomTextChunks(
+  text: string,
+  maxBytes: number,
+  splitByChars: (value: string, charLimit: number) => string[],
+): string[] {
+  return chunkTextToByteLimit(text, maxBytes, splitByChars);
 }

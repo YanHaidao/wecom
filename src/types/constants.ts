@@ -19,8 +19,37 @@ export const API_ENDPOINTS = {
   DOWNLOAD_MEDIA: `${API_BASE}/cgi-bin/media/get`,
 } as const;
 
+/**
+ * 各发送路径的消息长度上限，单位统一为 UTF-8 字节——企微手册的限制都以字节计。
+ *
+ * 注意不要按字符切分：纯中文每字符 3 字节，把字节上限当字符上限用会超出
+ * 3 倍，而企微对 text 是「超过将截断」，不报错。分片走
+ * shared/byte-chunking.ts 的 chunkTextToByteLimit。
+ */
+export const MESSAGE_BYTE_LIMITS = {
+  /**
+   * 自建应用 message/send 的 text 与 markdown，以及 appchat/send 的 text。
+   * 三者都是 2048 字节。
+   * https://developer.work.weixin.qq.com/document/path/90236
+   * https://developer.work.weixin.qq.com/document/path/90248
+   */
+  AGENT_MESSAGE: 2_048,
+  /**
+   * 群机器人 webhook 的 markdown / markdown_v2。text 仍是 2048。
+   * https://developer.work.weixin.qq.com/document/path/91770
+   */
+  BOT_WEBHOOK_MARKDOWN: 4_096,
+  /** 群机器人 webhook 的 text。 */
+  BOT_WEBHOOK_TEXT: 2_048,
+  /**
+   * 智能机器人 WS 流式回复的 stream.content。
+   * 见 @wecom/aibot-node-sdk 的 StreamReplyBody：
+   * 「回复内容（支持 Markdown），最长不超过 20480 个字节，必须是 utf8 编码」
+   */
+  BOT_WS_STREAM: 20_480,
+} as const;
+
 export const LIMITS = {
-  TEXT_MAX_BYTES: 20_480,
   TOKEN_REFRESH_BUFFER_MS: 60_000,
   REQUEST_TIMEOUT_MS: 15_000,
   MAX_REQUEST_BODY_SIZE: 1024 * 1024,

@@ -1,11 +1,11 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
-import { prepareWecomMarkdownChunks } from "../../config/markdown.js";
+import { prepareWecomMarkdownChunks, prepareWecomTextChunks } from "../../config/markdown.js";
 import { getWecomRuntime } from "../../runtime.js";
 import { resolveScopedWecomTarget } from "../../target.js";
 import { deliverUpstreamAgentApiMarkdown, deliverUpstreamAgentApiMedia, deliverUpstreamAgentApiText } from "../../transport/agent-api/upstream-delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import {
-  WECOM_TEXT_CHUNK_LIMIT,
+  WECOM_TEXT_CHUNK_BYTE_LIMIT,
   type WecomAgentDeliveryResult,
   type WecomAgentSendTextParams,
 } from "./delivery-service.js";
@@ -65,8 +65,10 @@ export class WecomUpstreamAgentDeliveryService {
     );
 
     const chunks = asMarkdown
-      ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_LIMIT)
-      : getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
+      ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT)
+      : prepareWecomTextChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT, (value, charLimit) =>
+          getWecomRuntime().channel.text.chunkText(value, charLimit),
+        );
 
     const messageIds: string[] = [];
     for (const chunk of chunks) {

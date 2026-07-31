@@ -1,12 +1,22 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
-import { prepareWecomMarkdownChunks, type WecomMarkdownFormat } from "../../config/markdown.js";
+import {
+  prepareWecomMarkdownChunks,
+  prepareWecomTextChunks,
+  type WecomMarkdownFormat,
+} from "../../config/markdown.js";
 import { resolveScopedWecomTarget } from "../../target.js";
 import { deliverAgentApiMarkdown, deliverAgentApiMedia, deliverAgentApiText } from "../../transport/agent-api/delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import { getWecomRuntime } from "../../runtime.js";
+import { MESSAGE_BYTE_LIMITS } from "../../types/constants.js";
 
-/** 企微单条消息的文本上限。 */
-export const WECOM_TEXT_CHUNK_LIMIT = 2048;
+/**
+ * 自建应用单条消息的上限，单位是 UTF-8 字节（text 与 markdown 同为 2048）。
+ *
+ * 名字里的 BYTE 是刻意的：此前这个常量叫 WECOM_TEXT_CHUNK_LIMIT 且被当作
+ * 字符上限传给 chunkText，纯中文会超出企微限制 3 倍并被静默截断。
+ */
+export const WECOM_TEXT_CHUNK_BYTE_LIMIT = MESSAGE_BYTE_LIMITS.AGENT_MESSAGE;
 
 export type WecomAgentDeliveryResult = {
   messageIds: string[];
@@ -67,8 +77,10 @@ export class WecomAgentDeliveryService {
     );
 
     const chunks = asMarkdown
-      ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_LIMIT)
-      : getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
+      ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT)
+      : prepareWecomTextChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT, (value, charLimit) =>
+          getWecomRuntime().channel.text.chunkText(value, charLimit),
+        );
 
     const messageIds: string[] = [];
     for (const chunk of chunks) {
