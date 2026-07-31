@@ -8,6 +8,7 @@ import { resolveScopedWecomTarget } from "../../target.js";
 import { deliverAgentApiMarkdown, deliverAgentApiMedia, deliverAgentApiText } from "../../transport/agent-api/delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import { getWecomRuntime } from "../../runtime.js";
+import { utf8ByteLength } from "../../shared/byte-chunking.js";
 import { MESSAGE_BYTE_LIMITS } from "../../types/constants.js";
 
 /**
@@ -72,15 +73,18 @@ export class WecomAgentDeliveryService {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
     const asMarkdown = params.format === "markdown";
-    console.log(
-      `[wecom-agent-delivery] sendText account=${this.agent.accountId} to=${String(params.to ?? "")} format=${params.format} len=${params.text.length}`,
-    );
-
     const chunks = asMarkdown
       ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT)
       : prepareWecomTextChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT, (value, charLimit) =>
           getWecomRuntime().channel.text.chunkText(value, charLimit),
         );
+
+    // 字节数与分片数一起打：企微按字节限长，只看字符数无法判断是否会被截断。
+    console.log(
+      `[wecom-agent-delivery] sendText account=${this.agent.accountId} to=${String(params.to ?? "")} ` +
+        `format=${params.format} chars=${params.text.length} bytes=${utf8ByteLength(params.text)} ` +
+        `chunks=${chunks.length} chunkBytes=[${chunks.map((c) => utf8ByteLength(c)).join(",")}]`,
+    );
 
     const messageIds: string[] = [];
     for (const chunk of chunks) {

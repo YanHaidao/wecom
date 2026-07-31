@@ -1,6 +1,7 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import { prepareWecomMarkdownChunks, prepareWecomTextChunks } from "../../config/markdown.js";
 import { getWecomRuntime } from "../../runtime.js";
+import { utf8ByteLength } from "../../shared/byte-chunking.js";
 import { resolveScopedWecomTarget } from "../../target.js";
 import { deliverUpstreamAgentApiMarkdown, deliverUpstreamAgentApiMedia, deliverUpstreamAgentApiText } from "../../transport/agent-api/upstream-delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
@@ -60,15 +61,18 @@ export class WecomUpstreamAgentDeliveryService {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
     const asMarkdown = params.format === "markdown";
-    console.log(
-      `[wecom-upstream-delivery] sendText account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} to=${String(params.to ?? "")} format=${params.format} len=${params.text.length}`,
-    );
-
     const chunks = asMarkdown
       ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT)
       : prepareWecomTextChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT, (value, charLimit) =>
           getWecomRuntime().channel.text.chunkText(value, charLimit),
         );
+
+    console.log(
+      `[wecom-upstream-delivery] sendText account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} ` +
+        `to=${String(params.to ?? "")} format=${params.format} chars=${params.text.length} ` +
+        `bytes=${utf8ByteLength(params.text)} chunks=${chunks.length} ` +
+        `chunkBytes=[${chunks.map((c) => utf8ByteLength(c)).join(",")}]`,
+    );
 
     const messageIds: string[] = [];
     for (const chunk of chunks) {
