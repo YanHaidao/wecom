@@ -1,7 +1,7 @@
 import crypto from "node:crypto";
 
 import { resolveWecomEgressProxyUrlFromNetwork } from "../../config/index.js";
-import { LIMITS } from "../../types/constants.js";
+import { API_ENDPOINTS, LIMITS } from "../../types/constants.js";
 import { wecomFetch } from "../../http.js";
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import { guessUploadContentType, normalizeUploadFilename } from "./core.js";
@@ -25,7 +25,7 @@ export async function uploadUpstreamAgentApiMedia(params: {
   });
   
   const proxyUrl = resolveWecomEgressProxyUrlFromNetwork(upstreamAgent.network);
-  const url = `https://qyapi.weixin.qq.com/cgi-bin/media/upload?access_token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&debug=1`;
+  const url = `${API_ENDPOINTS.UPLOAD_MEDIA}?access_token=${encodeURIComponent(token)}&type=${encodeURIComponent(type)}&debug=1`;
 
   const uploadOnce = async (fileContentType: string) => {
     const boundary = `----WebKitFormBoundary${crypto.randomBytes(16).toString("hex")}`;

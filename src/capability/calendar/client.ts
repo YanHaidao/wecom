@@ -6,7 +6,7 @@ import type { ResolvedAgentAccount } from "../../types/index.js";
 import { getAccessToken } from "../../transport/agent-api/core.js";
 import { wecomFetch } from "../../http.js";
 import { resolveWecomEgressProxyUrlFromNetwork } from "../../config/index.js";
-import { LIMITS } from "../../types/constants.js";
+import { API_BASE, LIMITS } from "../../types/constants.js";
 import type {
     CreateCalendarRequest, CreateCalendarResponse, UpdateCalendarRequest, UpdateCalendarResponse,
     GetCalendarRequest, GetCalendarResponse, DeleteCalendarResponse,
@@ -280,7 +280,7 @@ export class WecomCalendarClient {
         }
 
         const token = await getAccessToken(agent);
-        const url = `https://qyapi.weixin.qq.com${path}?access_token=${encodeURIComponent(token)}`;
+        const url = `${API_BASE}${path}?access_token=${encodeURIComponent(token)}`;
         const proxyUrl = resolveWecomEgressProxyUrlFromNetwork(agent.network);
 
         let lastError: Error | undefined;

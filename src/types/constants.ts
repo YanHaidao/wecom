@@ -6,12 +6,17 @@ export const WEBHOOK_PATHS = {
   AGENT_PLUGIN: "/plugins/wecom/agent",
 } as const;
 
+/** 企微开放接口域名，动态拼 path 的调用（日历、文档）直接用它。 */
+export const API_BASE = "https://qyapi.weixin.qq.com";
+
 export const API_ENDPOINTS = {
-  GET_TOKEN: "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
-  SEND_MESSAGE: "https://qyapi.weixin.qq.com/cgi-bin/message/send",
-  SEND_APPCHAT: "https://qyapi.weixin.qq.com/cgi-bin/appchat/send",
-  UPLOAD_MEDIA: "https://qyapi.weixin.qq.com/cgi-bin/media/upload",
-  DOWNLOAD_MEDIA: "https://qyapi.weixin.qq.com/cgi-bin/media/get",
+  GET_TOKEN: `${API_BASE}/cgi-bin/gettoken`,
+  /** 上下游企业：用上游 token 换下游企业 token。 */
+  GET_UPSTREAM_TOKEN: `${API_BASE}/cgi-bin/corpgroup/corp/gettoken`,
+  SEND_MESSAGE: `${API_BASE}/cgi-bin/message/send`,
+  SEND_APPCHAT: `${API_BASE}/cgi-bin/appchat/send`,
+  UPLOAD_MEDIA: `${API_BASE}/cgi-bin/media/upload`,
+  DOWNLOAD_MEDIA: `${API_BASE}/cgi-bin/media/get`,
 } as const;
 
 export const LIMITS = {
