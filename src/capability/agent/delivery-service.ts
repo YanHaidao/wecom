@@ -4,6 +4,18 @@ import { deliverAgentApiMedia, deliverAgentApiText } from "../../transport/agent
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import { getWecomRuntime } from "../../runtime.js";
 
+/** 企微单条消息的文本上限。 */
+export const WECOM_TEXT_CHUNK_LIMIT = 2048;
+
+export type WecomAgentDeliveryResult = {
+  messageIds: string[];
+};
+
+export type WecomAgentSendTextParams = {
+  to: string | undefined;
+  text: string;
+};
+
 export class WecomAgentDeliveryService {
   constructor(private readonly agent: ResolvedAgentAccount) { }
 
@@ -43,24 +55,23 @@ export class WecomAgentDeliveryService {
     return target;
   }
 
-  async sendText(params: { to: string | undefined; text: string }): Promise<void> {
+  async sendText(params: WecomAgentSendTextParams): Promise<WecomAgentDeliveryResult> {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
     console.log(
       `[wecom-agent-delivery] sendText account=${this.agent.accountId} to=${String(params.to ?? "")} len=${params.text.length}`,
     );
 
-    const runtime = getWecomRuntime();
-    const chunks = runtime.channel.text.chunkText(params.text, 2048);
+    const chunks = getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
 
+    const messageIds: string[] = [];
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
-      await deliverAgentApiText({
-        agent: this.agent,
-        target,
-        text: chunk,
-      });
+      const result = await deliverAgentApiText({ agent: this.agent, target, text: chunk });
+      if (result?.msgid) messageIds.push(result.msgid);
     }
+
+    return { messageIds };
   }
 
   async sendMedia(params: {
@@ -69,13 +80,13 @@ export class WecomAgentDeliveryService {
     buffer: Buffer;
     filename: string;
     contentType: string;
-  }): Promise<void> {
+  }): Promise<WecomAgentDeliveryResult> {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
     console.log(
       `[wecom-agent-delivery] sendMedia account=${this.agent.accountId} to=${String(params.to ?? "")} filename=${params.filename} contentType=${params.contentType}`,
     );
-    await deliverAgentApiMedia({
+    const result = await deliverAgentApiMedia({
       agent: this.agent,
       target,
       buffer: params.buffer,
@@ -83,5 +94,6 @@ export class WecomAgentDeliveryService {
       contentType: params.contentType,
       text: params.text,
     });
+    return { messageIds: result?.msgid ? [result.msgid] : [] };
   }
 }

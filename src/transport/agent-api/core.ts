@@ -178,7 +178,7 @@ export async function getUpstreamAccessToken(params: {
       const primaryToken = await getAccessToken(primaryAgent);
 
       // 2. 调用 corpgroup/corp/gettoken 获取下游企业的 access_token
-      const url = `https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/gettoken?access_token=${encodeURIComponent(primaryToken)}`;
+      const url = `${API_ENDPOINTS.GET_UPSTREAM_TOKEN}?access_token=${encodeURIComponent(primaryToken)}`;
       
       const requestBody = {
         corpid: upstreamCorpId,
@@ -221,36 +221,85 @@ export async function getUpstreamAccessToken(params: {
   return cache.refreshPromise;
 }
 
-export async function sendText(params: {
+/**
+ * 发送成功后唯一有价值的返回值。
+ *
+ * invaliduser / unlicenseduser 这类部分失败字段不在这里：它们出现即抛错，
+ * 走到返回值的结果不可能带上它们。
+ */
+export type AgentSendResult = {
+  msgid?: string;
+};
+
+/** 企微发送类接口的公共响应字段。 */
+type WecomSendResponse = {
+  errcode?: number;
+  errmsg?: string;
+  invaliduser?: string;
+  invalidparty?: string;
+  invalidtag?: string;
+  unlicenseduser?: string;
+  msgid?: string;
+};
+
+export function normalizeAgentSendResult(json: WecomSendResponse): AgentSendResult {
+  return { msgid: json.msgid };
+}
+
+type AgentSendTarget = {
   agent: ResolvedAgentAccount;
   toUser?: string;
   toParty?: string;
   toTag?: string;
   chatId?: string;
-  text: string;
-}): Promise<void> {
-  const { agent, toUser, toParty, toTag, chatId, text } = params;
-  console.log(
-    `[wecom-agent-api] sendText request account=${agent.accountId} agentId=${String(agent.agentId ?? "N/A")} corpId=${agent.corpId} ` +
-      `toUser=${toUser ?? ""} toParty=${toParty ?? ""} toTag=${toTag ?? ""} chatId=${chatId ?? ""} ` +
-      `textLen=${text.length} textPreview=${JSON.stringify(truncateForLog(text))}`,
-  );
+};
+
+/**
+ * 自建应用消息发送的公共骨架：取 token、按目标选接口、POST、校验响应。
+ *
+ * 各 msgtype 只在 body 里的那一小块有差异，由 content 提供；
+ * 群会话（chatid）走 appchat/send，其余走 message/send。
+ */
+async function dispatchAgentApi(params: {
+  target: AgentSendTarget;
+  msgtype: string;
+  /** msgtype 对应的消息体片段，例如 `{ content: text }`。 */
+  content: unknown;
+  /** 错误信息里的动作名，用于区分 text / markdown / image 等。 */
+  errorLabel?: string;
+  /** 日志里的函数名；不传则不打日志（媒体路径历史上就没有）。 */
+  logAs?: string;
+  /** 追加到 request 日志末尾的细节，例如文本长度与预览。 */
+  logDetail?: string;
+}): Promise<AgentSendResult> {
+  const { agent, toUser, toParty, toTag, chatId } = params.target;
+  const label = params.errorLabel ? `${params.errorLabel} ` : "";
+  const targetDesc = `toUser=${toUser ?? ""} toParty=${toParty ?? ""} toTag=${toTag ?? ""} chatId=${chatId ?? ""}`;
+  const agentDesc = `account=${agent.accountId} agentId=${String(agent.agentId ?? "N/A")} corpId=${agent.corpId}`;
+
+  if (params.logAs) {
+    console.log(
+      `[wecom-agent-api] ${params.logAs} request ${agentDesc} ${targetDesc}` +
+        (params.logDetail ? ` ${params.logDetail}` : ""),
+    );
+  }
+
   const token = await getAccessToken(agent);
 
   const useChat = Boolean(chatId);
-  const url = useChat
-    ? `${API_ENDPOINTS.SEND_APPCHAT}?access_token=${encodeURIComponent(token)}`
-    : `${API_ENDPOINTS.SEND_MESSAGE}?access_token=${encodeURIComponent(token)}`;
+  const url = `${
+    useChat ? API_ENDPOINTS.SEND_APPCHAT : API_ENDPOINTS.SEND_MESSAGE
+  }?access_token=${encodeURIComponent(token)}`;
 
   const body = useChat
-    ? { chatid: chatId, msgtype: "text", text: { content: text } }
+    ? { chatid: chatId, msgtype: params.msgtype, [params.msgtype]: params.content }
     : {
         touser: toUser,
         toparty: toParty,
         totag: toTag,
-        msgtype: "text",
+        msgtype: params.msgtype,
         agentid: requireAgentId(agent),
-        text: { content: text },
+        [params.msgtype]: params.content,
       };
 
   const res = await wecomFetch(
@@ -262,35 +311,51 @@ export async function sendText(params: {
     },
     { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
   );
-  const json = (await res.json()) as {
-    errcode?: number;
-    errmsg?: string;
-    invaliduser?: string;
-    invalidparty?: string;
-    invalidtag?: string;
-  };
+  const json = (await res.json()) as WecomSendResponse;
 
-  console.log(
-    `[wecom-agent-api] sendText response account=${agent.accountId} agentId=${String(agent.agentId ?? "N/A")} corpId=${agent.corpId} ` +
-      `toUser=${toUser ?? ""} toParty=${toParty ?? ""} toTag=${toTag ?? ""} chatId=${chatId ?? ""} ` +
-      `errcode=${String(json?.errcode ?? "N/A")} errmsg=${json?.errmsg ?? ""} ` +
-      `invaliduser=${json?.invaliduser ?? ""} invalidparty=${json?.invalidparty ?? ""} invalidtag=${json?.invalidtag ?? ""}`,
-  );
-
-  if (json?.errcode !== 0) {
-    throw new Error(`send failed: ${json?.errcode} ${json?.errmsg}`);
+  if (params.logAs) {
+    console.log(
+      `[wecom-agent-api] ${params.logAs} response ${agentDesc} ${targetDesc} ` +
+        `errcode=${String(json?.errcode ?? "N/A")} errmsg=${json?.errmsg ?? ""} msgid=${json?.msgid ?? ""} ` +
+        `invaliduser=${json?.invaliduser ?? ""} invalidparty=${json?.invalidparty ?? ""} ` +
+        `invalidtag=${json?.invalidtag ?? ""} unlicenseduser=${json?.unlicenseduser ?? ""}`,
+    );
   }
 
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
+  if (json?.errcode !== 0) {
+    throw new Error(`send ${label}failed: ${json?.errcode} ${json?.errmsg}`);
+  }
+
+  if (json?.invaliduser || json?.invalidparty || json?.invalidtag || json?.unlicenseduser) {
     const details = [
       json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
       json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
       json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
+      json.unlicenseduser ? `unlicenseduser=${json.unlicenseduser}` : "",
     ]
       .filter(Boolean)
       .join(", ");
-    throw new Error(`send partial failure: ${details}`);
+    throw new Error(`send ${label}partial failure: ${details}`);
   }
+
+  return normalizeAgentSendResult(json);
+}
+
+export async function sendText(params: {
+  agent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  return dispatchAgentApi({
+    target: params,
+    msgtype: "text",
+    content: { content: params.text },
+    logAs: "sendText",
+    logDetail: `textLen=${params.text.length} textPreview=${JSON.stringify(truncateForLog(params.text))}`,
+  });
 }
 
 export async function uploadMedia(params: {
@@ -362,58 +427,17 @@ export async function sendMedia(params: {
   mediaType: "image" | "voice" | "video" | "file";
   title?: string;
   description?: string;
-}): Promise<void> {
-  const { agent, toUser, toParty, toTag, chatId, mediaId, mediaType, title, description } = params;
-  const token = await getAccessToken(agent);
-
-  const useChat = Boolean(chatId);
-  const url = useChat
-    ? `${API_ENDPOINTS.SEND_APPCHAT}?access_token=${encodeURIComponent(token)}`
-    : `${API_ENDPOINTS.SEND_MESSAGE}?access_token=${encodeURIComponent(token)}`;
-
-  const mediaPayload = mediaType === "video" ? { media_id: mediaId, title: title ?? "Video", description: description ?? "" } : { media_id: mediaId };
-  const body = useChat
-    ? { chatid: chatId, msgtype: mediaType, [mediaType]: mediaPayload }
-    : {
-        touser: toUser,
-        toparty: toParty,
-        totag: toTag,
-        msgtype: mediaType,
-        agentid: requireAgentId(agent),
-        [mediaType]: mediaPayload,
-      };
-
-  const res = await wecomFetch(
-    url,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-    { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
-  );
-  const json = (await res.json()) as {
-    errcode?: number;
-    errmsg?: string;
-    invaliduser?: string;
-    invalidparty?: string;
-    invalidtag?: string;
-  };
-
-  if (json?.errcode !== 0) {
-    throw new Error(`send ${mediaType} failed: ${json?.errcode} ${json?.errmsg}`);
-  }
-
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
-    const details = [
-      json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
-      json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
-      json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    throw new Error(`send ${mediaType} partial failure: ${details}`);
-  }
+}): Promise<AgentSendResult> {
+  const { mediaId, mediaType, title, description } = params;
+  return dispatchAgentApi({
+    target: params,
+    msgtype: mediaType,
+    content:
+      mediaType === "video"
+        ? { media_id: mediaId, title: title ?? "Video", description: description ?? "" }
+        : { media_id: mediaId },
+    errorLabel: mediaType,
+  });
 }
 
 export async function downloadMedia(params: {

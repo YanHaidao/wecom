@@ -1,8 +1,13 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
+import { getWecomRuntime } from "../../runtime.js";
 import { resolveScopedWecomTarget } from "../../target.js";
 import { deliverUpstreamAgentApiMedia, deliverUpstreamAgentApiText } from "../../transport/agent-api/upstream-delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
-import { getWecomRuntime } from "../../runtime.js";
+import {
+  WECOM_TEXT_CHUNK_LIMIT,
+  type WecomAgentDeliveryResult,
+  type WecomAgentSendTextParams,
+} from "./delivery-service.js";
 
 /**
  * 上下游企业消息发送服务
@@ -50,25 +55,28 @@ export class WecomUpstreamAgentDeliveryService {
     return target;
   }
 
-  async sendText(params: { to: string | undefined; text: string }): Promise<void> {
+  async sendText(params: WecomAgentSendTextParams): Promise<WecomAgentDeliveryResult> {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
     console.log(
       `[wecom-upstream-delivery] sendText account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} to=${String(params.to ?? "")} len=${params.text.length}`,
     );
 
-    const runtime = getWecomRuntime();
-    const chunks = runtime.channel.text.chunkText(params.text, 2048);
+    const chunks = getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
 
+    const messageIds: string[] = [];
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
-      await deliverUpstreamAgentApiText({
+      const result = await deliverUpstreamAgentApiText({
         upstreamAgent: this.upstreamAgent,
         primaryAgent: this.primaryAgent,
         target,
         text: chunk,
       });
+      if (result?.msgid) messageIds.push(result.msgid);
     }
+
+    return { messageIds };
   }
 
   async sendMedia(params: {
@@ -77,13 +85,13 @@ export class WecomUpstreamAgentDeliveryService {
     buffer: Buffer;
     filename: string;
     contentType: string;
-  }): Promise<void> {
+  }): Promise<WecomAgentDeliveryResult> {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
     console.log(
       `[wecom-upstream-delivery] sendMedia account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} to=${String(params.to ?? "")} filename=${params.filename} contentType=${params.contentType}`,
     );
-    await deliverUpstreamAgentApiMedia({
+    const result = await deliverUpstreamAgentApiMedia({
       upstreamAgent: this.upstreamAgent,
       primaryAgent: this.primaryAgent,
       target,
@@ -92,5 +100,6 @@ export class WecomUpstreamAgentDeliveryService {
       contentType: params.contentType,
       text: params.text,
     });
+    return { messageIds: result?.msgid ? [result.msgid] : [] };
   }
 }

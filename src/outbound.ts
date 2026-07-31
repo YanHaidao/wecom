@@ -474,7 +474,8 @@ export const wecomOutbound: ChannelOutboundAdapter = {
       return [text];
     }
   },
-  sendText: async ({ cfg, to, text, accountId, sessionKey }: WecomOutboundContext) => {
+  sendText: async (ctx: WecomOutboundContext) => {
+    const { cfg, to, text, accountId, sessionKey } = ctx;
     // signal removed - not supported in current SDK
     // Defer Agent resolution until the Agent fallback path
     // sendTextViaBotWs() can already deliver without Agent mode
@@ -529,6 +530,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     let sentViaBotWs = false;
     let agent: ReturnType<typeof resolveAgentConfigOrThrow> | null = null;
     let upstreamTarget: ReturnType<typeof resolveUpstreamTarget> | undefined;
+    let agentMessageIds: string[] = [];
 
     try {
       // 首先检查是否是上下游用户
@@ -551,13 +553,14 @@ export const wecomOutbound: ChannelOutboundAdapter = {
           upstreamTarget.upstreamAgent,
           upstreamTarget.primaryAgent,
         );
-        await deliveryService.sendText({
+        const deliveryResult = await deliveryService.sendText({
           to,
           text: outgoingText,
         });
+        agentMessageIds = deliveryResult.messageIds;
         return {
           channel: "wecom",
-          messageId: `upstream-agent-${Date.now()}`,
+          messageId: agentMessageIds[0] ?? `upstream-agent-${Date.now()}`,
           timestamp: Date.now(),
         };
       }
@@ -582,10 +585,11 @@ export const wecomOutbound: ChannelOutboundAdapter = {
           `[wecom-outbound] Sending text to target=${String(to ?? "")} (len=${outgoingText.length})`,
         );
         const deliveryService = new WecomAgentDeliveryService(agent);
-        await deliveryService.sendText({
+        const deliveryResult = await deliveryService.sendText({
           to,
           text: outgoingText,
         });
+        agentMessageIds = deliveryResult.messageIds;
       } else {
         logOutboundDecision({
           phase: "sendText:path-bot-ws",
@@ -607,7 +611,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
 
     return {
       channel: "wecom",
-      messageId: `${sentViaBotWs ? "bot-ws" : "agent"}-${Date.now()}`,
+      messageId: sentViaBotWs ? `bot-ws-${Date.now()}` : (agentMessageIds[0] ?? `agent-${Date.now()}`),
       timestamp: Date.now(),
     };
   },
@@ -659,7 +663,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
         upstreamTarget.upstreamAgent,
         upstreamTarget.primaryAgent,
       );
-      await deliveryService.sendMedia({
+      const deliveryResult = await deliveryService.sendMedia({
         to,
         text,
         buffer,
@@ -668,7 +672,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
       });
       return {
         channel: "wecom",
-        messageId: `upstream-agent-media-${Date.now()}`,
+        messageId: deliveryResult.messageIds[0] ?? `upstream-agent-media-${Date.now()}`,
         timestamp: Date.now(),
       };
     }
@@ -724,7 +728,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     );
 
     try {
-      await deliveryService.sendMedia({
+      const deliveryResult = await deliveryService.sendMedia({
         to,
         text,
         buffer,
@@ -732,15 +736,14 @@ export const wecomOutbound: ChannelOutboundAdapter = {
         contentType,
       });
       console.log(`[wecom-outbound] Successfully sent media to ${String(to ?? "")}`);
+      return {
+        channel: "wecom",
+        messageId: deliveryResult.messageIds[0] ?? `${botWs.attempted ? "agent-fallback-media" : "agent-media"}-${Date.now()}`,
+        timestamp: Date.now(),
+      };
     } catch (err) {
       console.error(`[wecom-outbound] Failed to send media to ${String(to ?? "")}:`, err);
       throw err;
     }
-
-    return {
-      channel: "wecom",
-      messageId: `${botWs.attempted ? "agent-fallback-media" : "agent-media"}-${Date.now()}`,
-      timestamp: Date.now(),
-    };
   },
 };
