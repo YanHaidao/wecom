@@ -1,11 +1,21 @@
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
-import { resolveWecomAccount } from "../../config/index.js";
+import {
+  prepareWecomMarkdownChunks,
+  resolveWecomAccount,
+  resolveWecomMarkdownFormat,
+} from "../../config/index.js";
+import { WECOM_TEXT_CHUNK_LIMIT } from "../agent/delivery-service.js";
 import { wecomFetch } from "../../http.js";
 import { LIMITS } from "../../monitor/state.js";
 import type { StreamState } from "../../types/legacy-stream.js";
 import type { ResolvedAgentAccount } from "../../types/index.js";
-import { sendMedia as sendAgentMedia, sendText as sendAgentText, uploadMedia } from "../../transport/agent-api/core.js";
+import {
+  sendMarkdown as sendAgentMarkdown,
+  sendMedia as sendAgentMedia,
+  sendText as sendAgentText,
+  uploadMedia,
+} from "../../transport/agent-api/core.js";
 import { buildStreamReplyFromState } from "../../transport/bot-webhook/protocol.js";
 import { useActiveReplyOnce } from "../../transport/bot-webhook/active-reply.js";
 import { guessContentTypeFromPath } from "../../transport/bot-webhook/inbound-normalizer.js";
@@ -95,12 +105,19 @@ export async function sendAgentDmText(params: {
   userId: string;
   text: string;
   core: PluginRuntime;
+  cfg: OpenClawConfig;
 }): Promise<void> {
-  const chunks = params.core.channel.text.chunkText(params.text, 2048);
+  // Bot 超时兜底的 Agent 私信同样不经过 wecomOutbound，所以在这里解析账号配置。
+  const asMarkdown =
+    resolveWecomMarkdownFormat(params.cfg, params.agent.accountId) === "markdown";
+  const chunks = asMarkdown
+    ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_LIMIT)
+    : params.core.channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
+  const send = asMarkdown ? sendAgentMarkdown : sendAgentText;
   for (const chunk of chunks) {
     const trimmed = chunk.trim();
     if (!trimmed) continue;
-    await sendAgentText({ agent: params.agent, toUser: params.userId, text: trimmed });
+    await send({ agent: params.agent, toUser: params.userId, text: trimmed });
   }
 }
 
