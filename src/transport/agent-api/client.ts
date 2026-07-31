@@ -5,6 +5,7 @@ import {
   getAccessToken as getLegacyAccessToken,
   getUpstreamAccessToken as getLegacyUpstreamAccessToken,
   normalizeAgentSendResult,
+  sendMarkdown as sendLegacyMarkdown,
   sendMedia as sendLegacyMedia,
   sendText as sendLegacyText,
   type AgentSendResult,
@@ -31,6 +32,17 @@ export async function sendAgentApiText(params: {
   text: string;
 }): Promise<AgentSendResult> {
   return sendLegacyText(params);
+}
+
+export async function sendAgentApiMarkdown(params: {
+  agent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  return sendLegacyMarkdown(params);
 }
 
 export async function sendAgentApiMedia(params: {
@@ -222,6 +234,32 @@ export async function sendUpstreamAgentApiText(params: {
     target: params,
     msgtype: "text",
     content: { content: params.text },
+  });
+}
+
+/** 同 sendUpstreamAgentApiText，msgtype 为 markdown。 */
+export async function sendUpstreamAgentApiMarkdown(params: {
+  upstreamAgent: ResolvedAgentAccount;
+  primaryAgent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  /** 传了就抛错，理由见 core.ts sendMarkdown。 */
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  const { chatId, ...target } = params;
+  if (chatId) {
+    throw new Error(
+      `send markdown failed: 企微 markdown 消息不支持群会话（chatId=${chatId}），` +
+        `appchat/send 无 markdown msgtype。请对群目标改用 sendUpstreamAgentApiText。`,
+    );
+  }
+  return dispatchUpstreamAgentApi({
+    target,
+    msgtype: "markdown",
+    content: { content: params.text },
+    errorLabel: "markdown",
   });
 }
 

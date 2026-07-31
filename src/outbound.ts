@@ -3,6 +3,7 @@ import type { ResolvedAgentAccount } from "./types/account.js";
 import { WecomAgentDeliveryService } from "./capability/agent/index.js";
 import { WecomUpstreamAgentDeliveryService } from "./capability/agent/upstream-delivery-service.js";
 import {
+  resolveWecomMarkdownFormat,
   resolveWecomMergedMediaLocalRoots,
   resolveWecomMediaMaxBytes,
   resolveWecomAccount,
@@ -556,6 +557,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
         const deliveryResult = await deliveryService.sendText({
           to,
           text: outgoingText,
+          format: resolveWecomMarkdownFormat(cfg, upstreamTarget.upstreamAgent.accountId),
         });
         agentMessageIds = deliveryResult.messageIds;
         return {
@@ -588,6 +590,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
         const deliveryResult = await deliveryService.sendText({
           to,
           text: outgoingText,
+          format: resolveWecomMarkdownFormat(cfg, agent.accountId),
         });
         agentMessageIds = deliveryResult.messageIds;
       } else {

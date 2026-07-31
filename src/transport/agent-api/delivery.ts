@@ -1,6 +1,6 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import type { WecomTarget } from "../../target.js";
-import { sendAgentApiMediaReply, sendAgentApiTextReply } from "./reply.js";
+import { sendAgentApiMarkdownReply, sendAgentApiMediaReply, sendAgentApiTextReply } from "./reply.js";
 import { uploadAgentApiMedia } from "./media-upload.js";
 import type { AgentSendResult } from "./core.js";
 
@@ -10,6 +10,14 @@ export async function deliverAgentApiText(params: {
   text: string;
 }): Promise<AgentSendResult> {
   return sendAgentApiTextReply(params);
+}
+
+export async function deliverAgentApiMarkdown(params: {
+  agent: ResolvedAgentAccount;
+  target: WecomTarget;
+  text: string;
+}): Promise<AgentSendResult> {
+  return sendAgentApiMarkdownReply(params);
 }
 
 export async function deliverAgentApiMedia(params: {

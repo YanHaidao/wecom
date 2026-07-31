@@ -1,6 +1,7 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
+import { prepareWecomMarkdownChunks, type WecomMarkdownFormat } from "../../config/markdown.js";
 import { resolveScopedWecomTarget } from "../../target.js";
-import { deliverAgentApiMedia, deliverAgentApiText } from "../../transport/agent-api/delivery.js";
+import { deliverAgentApiMarkdown, deliverAgentApiMedia, deliverAgentApiText } from "../../transport/agent-api/delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import { getWecomRuntime } from "../../runtime.js";
 
@@ -14,6 +15,8 @@ export type WecomAgentDeliveryResult = {
 export type WecomAgentSendTextParams = {
   to: string | undefined;
   text: string;
+  /** 由调用方解析好的账号格式配置。 */
+  format: WecomMarkdownFormat;
 };
 
 export class WecomAgentDeliveryService {
@@ -58,16 +61,21 @@ export class WecomAgentDeliveryService {
   async sendText(params: WecomAgentSendTextParams): Promise<WecomAgentDeliveryResult> {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
+    const asMarkdown = params.format === "markdown";
     console.log(
-      `[wecom-agent-delivery] sendText account=${this.agent.accountId} to=${String(params.to ?? "")} len=${params.text.length}`,
+      `[wecom-agent-delivery] sendText account=${this.agent.accountId} to=${String(params.to ?? "")} format=${params.format} len=${params.text.length}`,
     );
 
-    const chunks = getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
+    const chunks = asMarkdown
+      ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_LIMIT)
+      : getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
 
     const messageIds: string[] = [];
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
-      const result = await deliverAgentApiText({ agent: this.agent, target, text: chunk });
+      const result = asMarkdown
+        ? await deliverAgentApiMarkdown({ agent: this.agent, target, text: chunk })
+        : await deliverAgentApiText({ agent: this.agent, target, text: chunk });
       if (result?.msgid) messageIds.push(result.msgid);
     }
 

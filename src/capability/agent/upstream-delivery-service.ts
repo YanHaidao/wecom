@@ -1,7 +1,8 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
+import { prepareWecomMarkdownChunks } from "../../config/markdown.js";
 import { getWecomRuntime } from "../../runtime.js";
 import { resolveScopedWecomTarget } from "../../target.js";
-import { deliverUpstreamAgentApiMedia, deliverUpstreamAgentApiText } from "../../transport/agent-api/upstream-delivery.js";
+import { deliverUpstreamAgentApiMarkdown, deliverUpstreamAgentApiMedia, deliverUpstreamAgentApiText } from "../../transport/agent-api/upstream-delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import {
   WECOM_TEXT_CHUNK_LIMIT,
@@ -58,21 +59,32 @@ export class WecomUpstreamAgentDeliveryService {
   async sendText(params: WecomAgentSendTextParams): Promise<WecomAgentDeliveryResult> {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
+    const asMarkdown = params.format === "markdown";
     console.log(
-      `[wecom-upstream-delivery] sendText account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} to=${String(params.to ?? "")} len=${params.text.length}`,
+      `[wecom-upstream-delivery] sendText account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} to=${String(params.to ?? "")} format=${params.format} len=${params.text.length}`,
     );
 
-    const chunks = getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
+    const chunks = asMarkdown
+      ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_LIMIT)
+      : getWecomRuntime().channel.text.chunkText(params.text, WECOM_TEXT_CHUNK_LIMIT);
 
     const messageIds: string[] = [];
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
-      const result = await deliverUpstreamAgentApiText({
-        upstreamAgent: this.upstreamAgent,
-        primaryAgent: this.primaryAgent,
-        target,
-        text: chunk,
-      });
+      const result =
+        asMarkdown
+          ? await deliverUpstreamAgentApiMarkdown({
+              upstreamAgent: this.upstreamAgent,
+              primaryAgent: this.primaryAgent,
+              target,
+              text: chunk,
+            })
+          : await deliverUpstreamAgentApiText({
+              upstreamAgent: this.upstreamAgent,
+              primaryAgent: this.primaryAgent,
+              target,
+              text: chunk,
+            });
       if (result?.msgid) messageIds.push(result.msgid);
     }
 

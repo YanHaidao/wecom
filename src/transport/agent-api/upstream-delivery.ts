@@ -1,6 +1,6 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import type { WecomTarget } from "../../target.js";
-import { sendUpstreamAgentApiMediaReply, sendUpstreamAgentApiTextReply } from "./upstream-reply.js";
+import { sendUpstreamAgentApiMarkdownReply, sendUpstreamAgentApiMediaReply, sendUpstreamAgentApiTextReply } from "./upstream-reply.js";
 import type { AgentSendResult } from "./core.js";
 
 export async function deliverUpstreamAgentApiText(params: {
@@ -10,6 +10,15 @@ export async function deliverUpstreamAgentApiText(params: {
   text: string;
 }): Promise<AgentSendResult> {
   return sendUpstreamAgentApiTextReply(params);
+}
+
+export async function deliverUpstreamAgentApiMarkdown(params: {
+  upstreamAgent: ResolvedAgentAccount;
+  primaryAgent: ResolvedAgentAccount;
+  target: WecomTarget;
+  text: string;
+}): Promise<AgentSendResult> {
+  return sendUpstreamAgentApiMarkdownReply(params);
 }
 
 export async function deliverUpstreamAgentApiMedia(params: {

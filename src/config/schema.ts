@@ -22,6 +22,15 @@ export interface RoutingConfig {
   failClosedOnDefaultRoute?: boolean;
 }
 
+/**
+ * 文本渲染格式，可配在渠道级或账号级（账号优先）。
+ * 对齐 OpenClaw 的 markdown 配置模型，见 docs/concepts/markdown-formatting.md。
+ */
+export interface MarkdownConfig {
+  /** `text`（默认）纯文本；`markdown` 按企微 markdown 发送。 */
+  format?: "text" | "markdown";
+}
+
 export interface BotWsConfig {
   botId: string;
   secret: string;
@@ -66,6 +75,7 @@ export interface AccountConfig {
   enabled?: boolean;
   name?: string;
   mediaMaxMb?: number;
+  markdown?: MarkdownConfig;
   bot?: BotConfig;
   agent?: AgentConfig;
 }
@@ -74,6 +84,7 @@ export interface WecomConfigInput {
   enabled?: boolean;
   mediaMaxMb?: number;
   mediaDownloadTimeoutMs?: number;
+  markdown?: MarkdownConfig;
   bot?: BotConfig;
   agent?: AgentConfig;
   accounts?: Record<string, AccountConfig>;

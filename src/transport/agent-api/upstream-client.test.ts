@@ -25,7 +25,7 @@ let upstreamAgent: never;
 let primaryAgent: never;
 
 /**
- * 覆盖 dispatchUpstreamAgentApi：各 msgtype 共用同一骨架，
+ * 覆盖 dispatchUpstreamAgentApi：三种 msgtype 共用同一骨架，
  * 差异只在 body 的消息体片段与错误信息里的动作名。
  */
 describe("upstream Agent API dispatch", () => {
@@ -80,6 +80,27 @@ describe("upstream Agent API dispatch", () => {
     expect(result).toMatchObject({ msgid: "up-txt-1" });
   });
 
+  it("sends msgtype=markdown to message/send", async () => {
+    const { sendUpstreamAgentApiMarkdown } = await import("./client.js");
+    fetchMock.mockResolvedValueOnce(jsonResponse({ errcode: 0, msgid: "up-md-1" }));
+
+    const result = await sendUpstreamAgentApiMarkdown({
+      upstreamAgent,
+      primaryAgent,
+      toUser: "zhangsan",
+      text: "# hi",
+    });
+
+    expect(fetchMock.mock.calls[SEND_CALL][0]).toContain("/cgi-bin/message/send");
+    expect(bodyOf(SEND_CALL)).toMatchObject({
+      touser: "zhangsan",
+      msgtype: "markdown",
+      agentid: 1000003,
+      markdown: { content: "# hi" },
+    });
+    expect(result).toMatchObject({ msgid: "up-md-1" });
+  });
+
   it("keeps the video media payload shape", async () => {
     const { sendUpstreamAgentApiMedia } = await import("./client.js");
     fetchMock.mockResolvedValueOnce(jsonResponse({ errcode: 0, msgid: "up-vid-1" }));
@@ -101,18 +122,12 @@ describe("upstream Agent API dispatch", () => {
   });
 
   it("labels errcode failures per msgtype", async () => {
-    const { sendUpstreamAgentApiMedia } = await import("./client.js");
+    const { sendUpstreamAgentApiMarkdown } = await import("./client.js");
     fetchMock.mockResolvedValueOnce(jsonResponse({ errcode: 81013, errmsg: "no privilege" }));
 
     await expect(
-      sendUpstreamAgentApiMedia({
-        upstreamAgent,
-        primaryAgent,
-        toUser: "zhangsan",
-        mediaId: "media-1",
-        mediaType: "image",
-      }),
-    ).rejects.toThrow(/send image failed: 81013/);
+      sendUpstreamAgentApiMarkdown({ upstreamAgent, primaryAgent, toUser: "zhangsan", text: "# hi" }),
+    ).rejects.toThrow(/send markdown failed: 81013/);
   });
 
   it("keeps the unlabelled error string for text sends", async () => {

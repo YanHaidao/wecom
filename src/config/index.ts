@@ -23,4 +23,10 @@ export {
   resolveWecomMediaMaxBytes,
   resolveWecomMergedMediaLocalRoots,
 } from "./media.js";
+export {
+  normalizeWecomMarkdownFormat,
+  prepareWecomMarkdownChunks,
+  resolveWecomMarkdownFormat,
+  type WecomMarkdownFormat,
+} from "./markdown.js";
 export { resolveWecomFailClosedOnDefaultRoute, shouldRejectWecomDefaultRoute } from "./routing.js";

@@ -1,6 +1,6 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import type { WecomTarget } from "../../target.js";
-import { sendAgentApiMedia, sendAgentApiText } from "./client.js";
+import { sendAgentApiMarkdown, sendAgentApiMedia, sendAgentApiText } from "./client.js";
 import type { AgentSendResult } from "./core.js";
 
 export async function sendAgentApiTextReply(params: {
@@ -9,6 +9,21 @@ export async function sendAgentApiTextReply(params: {
   text: string;
 }): Promise<AgentSendResult> {
   return sendAgentApiText({
+    agent: params.agent,
+    toUser: params.target.touser,
+    toParty: params.target.toparty,
+    toTag: params.target.totag,
+    chatId: params.target.chatid,
+    text: params.text,
+  });
+}
+
+export async function sendAgentApiMarkdownReply(params: {
+  agent: ResolvedAgentAccount;
+  target: WecomTarget;
+  text: string;
+}): Promise<AgentSendResult> {
+  return sendAgentApiMarkdown({
     agent: params.agent,
     toUser: params.target.touser,
     toParty: params.target.toparty,

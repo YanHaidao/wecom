@@ -358,6 +358,36 @@ export async function sendText(params: {
   });
 }
 
+export async function sendMarkdown(params: {
+  agent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  /**
+   * 企微 markdown 不支持 appchat/send，所以群会话目标无法用这个 msgtype 发送。
+   * 传了就抛错：静默丢弃会让 body 里一个收件人字段都不剩，
+   * 变成企微直接拒绝的空投递请求。调用方应改用 sendText。
+   */
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  const { chatId, ...target } = params;
+  if (chatId) {
+    throw new Error(
+      `send markdown failed: 企微 markdown 消息不支持群会话（chatId=${chatId}），` +
+        `appchat/send 无 markdown msgtype。请对群目标改用 sendText。`,
+    );
+  }
+  return dispatchAgentApi({
+    target,
+    msgtype: "markdown",
+    content: { content: params.text },
+    errorLabel: "markdown",
+    logAs: "sendMarkdown",
+    logDetail: `textLen=${params.text.length} textPreview=${JSON.stringify(truncateForLog(params.text))}`,
+  });
+}
+
 export async function uploadMedia(params: {
   agent: ResolvedAgentAccount;
   type: "image" | "voice" | "video" | "file";
