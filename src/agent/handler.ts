@@ -8,7 +8,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 import type { WecomAccountRuntime } from "../app/account-runtime.js";
-import { resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "../config/index.js";
+import {
+  prepareWecomMarkdownChunks,
+  resolveWecomMarkdownFormat,
+  resolveWecomMediaMaxBytes,
+  shouldRejectWecomDefaultRoute,
+} from "../config/index.js";
 import {
   buildAgentSessionTarget,
   generateAgentId,
@@ -37,7 +42,9 @@ import { resolveOutboundMediaAsset } from "../shared/media-asset.js";
 import {
   downloadAgentApiMedia,
   downloadUpstreamAgentApiMedia,
+  sendAgentApiMarkdown,
   sendAgentApiText,
+  sendUpstreamAgentApiMarkdown,
   sendUpstreamAgentApiText,
 } from "../transport/agent-api/client.js";
 import { deliverAgentApiMedia } from "../transport/agent-api/delivery.js";
@@ -55,6 +62,18 @@ import { detectUpstreamUser, createUpstreamAgentConfig, resolveUpstreamCorpConfi
 
 /** 错误提示信息 */
 const ERROR_HELP = "\n\n遇到问题？联系作者: YanHaidao (微信: YanHaidao)";
+
+/** Agent 回调回复的分片上限，沿用既有值（低于企微 2048 上限）。 */
+const AGENT_REPLY_CHUNK_LIMIT = 600;
+
+/** 定长切分，等价于原先内联的 `slice(i, i + MAX_CHUNK_SIZE)` 循环。 */
+function sliceByLength(text: string, limit: number): string[] {
+  const chunks: string[] = [];
+  for (let i = 0; i < text.length; i += limit) {
+    chunks.push(text.slice(i, i + limit));
+  }
+  return chunks;
+}
 
 // Agent webhook 幂等去重池（防止企微回调重试导致重复回复）
 // 注意：这是进程内内存去重，重启会清空；但足以覆盖企微的短周期重试。
@@ -947,11 +966,31 @@ async function processAgentMessage(params: {
               ? mergeDeferredMediaUrls(incomingMediaUrls)
               : incomingMediaUrls;
 
+          // Agent 回调回复不经过 wecomOutbound，所以要自己解析账号配置，
+          // 否则 markdown.format 对这条路径不生效。
+          //
+          // 群会话回落纯文本：企微 markdown 没有 appchat/send 变体，
+          // 而这条路径必须把回复发出去，宁可降级格式也不要发送失败。
+          const markdownConfigured =
+            resolveWecomMarkdownFormat(config, effectiveAgent.accountId) === "markdown";
+          const replyTargetIsChat = Boolean(effectiveReplyTarget.chatId);
+          const asMarkdown = markdownConfigured && !replyTargetIsChat;
+          if (markdownConfigured && replyTargetIsChat) {
+            log?.(
+              `[wecom-agent] markdown 配置对群会话不适用，本条回落纯文本 chatId=${String(peerId)}`,
+            );
+          }
           const outboundText = text;
 
           if ((!outboundText || !outboundText.trim()) && mediaUrls.length === 0) {
             return;
           }
+
+          // 纯文本沿用既有的定长切分；markdown 必须先整体转换再按语法边界分片，
+          // 否则转换后超限会被截断、`**bold**` 会被从中间劈开。
+          const replyChunks = asMarkdown
+            ? prepareWecomMarkdownChunks(outboundText, AGENT_REPLY_CHUNK_LIMIT)
+            : sliceByLength(outboundText, AGENT_REPLY_CHUNK_LIMIT);
 
           // 标记已有回复，清除/失效定时器
           hasResponseSent = true;
@@ -960,21 +999,24 @@ async function processAgentMessage(params: {
           // 将本次发送任务加入队列
           // 即使 deliver 被并发调用，队列中的任务也会按入队顺序串行执行
           const currentTask = async () => {
-            const MAX_CHUNK_SIZE = 600;
             // 确保分片顺序发送
-            for (let i = 0; i < outboundText.length; i += MAX_CHUNK_SIZE) {
-              const chunk = outboundText.slice(i, i + MAX_CHUNK_SIZE);
+            for (let chunkIndex = 0; chunkIndex < replyChunks.length; chunkIndex += 1) {
+              const chunk = replyChunks[chunkIndex]!;
 
               try {
                 if (upstreamAgent) {
-                  await sendUpstreamAgentApiText({
+                  const sendUpstream = asMarkdown
+                    ? sendUpstreamAgentApiMarkdown
+                    : sendUpstreamAgentApiText;
+                  await sendUpstream({
                     upstreamAgent,
                     primaryAgent: primaryAgentForUpstream!,
                     ...effectiveReplyTarget,
                     text: chunk,
                   });
                 } else {
-                  await sendAgentApiText({ agent: effectiveAgent, ...effectiveReplyTarget, text: chunk });
+                  const send = asMarkdown ? sendAgentApiMarkdown : sendAgentApiText;
+                  await send({ agent: effectiveAgent, ...effectiveReplyTarget, text: chunk });
                 }
                 touchTransportSession?.({ lastOutboundAt: Date.now(), running: true });
                 log?.(
@@ -982,7 +1024,7 @@ async function processAgentMessage(params: {
                 );
 
                 // 强制延时：确保企业微信有足够时间处理顺序（优化：200ms → 50ms）
-                if (i + MAX_CHUNK_SIZE < outboundText.length) {
+                if (chunkIndex + 1 < replyChunks.length) {
                   await new Promise((resolve) => setTimeout(resolve, 50));
                 }
               } catch (err: unknown) {
