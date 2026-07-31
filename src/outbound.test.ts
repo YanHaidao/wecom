@@ -1,4 +1,7 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotWsPushHandle } from "./app/index.js";
 
 vi.mock("./transport/agent-api/core.js", () => ({
@@ -8,6 +11,13 @@ vi.mock("./transport/agent-api/core.js", () => ({
 }));
 
 describe("wecomOutbound", () => {
+  async function createTempMediaFile(filename = "media.png"): Promise<string> {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wecom-outbound-"));
+    const filePath = path.join(dir, filename);
+    await writeFile(filePath, Buffer.from([1, 2, 3]));
+    return filePath;
+  }
+
   const createBotWsHandle = (overrides: Partial<BotWsPushHandle> = {}): BotWsPushHandle => ({
     isConnected: () => true,
     sendMarkdown: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +25,14 @@ describe("wecomOutbound", () => {
     sendMedia: vi.fn().mockResolvedValue({ ok: true, messageId: "ws-media-1" }),
     ...overrides,
   });
+
+  // Loading ./outbound.js pulls in the whole channel graph and takes ~1.5s the
+  // first time. Modules are never reset here, so that cost used to land on
+  // whichever test imported first, pushing it past the 5s default timeout under
+  // full-suite CPU contention. Pay it once up front instead.
+  beforeAll(async () => {
+    await import("./outbound.js");
+  }, 60_000);
 
   beforeEach(async () => {
     const runtime = await import("./runtime.js");
@@ -628,12 +646,14 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("media.png");
+
     await wecomOutbound.sendMedia({
       cfg,
       sessionKey: "agent:ops_bot:wecom:default:dm:zhangsan",
       to: "user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/media.png",
+      mediaUrl,
     } as any);
 
     expect(sendMedia).not.toHaveBeenCalled();
@@ -753,11 +773,13 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("media.png");
+
     await wecomOutbound.sendMedia({
       cfg,
       to: "user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/media.png",
+      mediaUrl,
     } as any);
 
     expect(sendMedia).not.toHaveBeenCalled();
@@ -966,11 +988,13 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("media.png");
+
     await wecomOutbound.sendMedia({
       cfg,
       to: "wecom-agent:default:user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/media.png",
+      mediaUrl,
     } as any);
 
     expect(sendMedia).not.toHaveBeenCalled();
@@ -1137,12 +1161,14 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("file.md");
+
     await wecomOutbound.sendMedia({
       cfg,
       accountId: "default",
       to: "wecom-agent:default:user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/file.md",
+      mediaUrl,
     } as any);
 
     expect(upstreamUploadSpy).toHaveBeenCalledWith(
