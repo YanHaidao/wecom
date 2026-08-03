@@ -9,6 +9,7 @@ import { deliverAgentApiMarkdown, deliverAgentApiMedia, deliverAgentApiText } fr
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import { getWecomRuntime } from "../../runtime.js";
 import { utf8ByteLength } from "../../shared/byte-chunking.js";
+import { createSendPacer } from "../../shared/send-pacing.js";
 import { MESSAGE_BYTE_LIMITS } from "../../types/constants.js";
 
 /**
@@ -87,8 +88,11 @@ export class WecomAgentDeliveryService {
     );
 
     const messageIds: string[] = [];
+    // 隔开相邻两片：企微不保证同一收件人连续多条消息的投递顺序。
+    const pace = createSendPacer();
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
+      await pace();
       const result = asMarkdown
         ? await deliverAgentApiMarkdown({ agent: this.agent, target, text: chunk })
         : await deliverAgentApiText({ agent: this.agent, target, text: chunk });

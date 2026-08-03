@@ -22,6 +22,7 @@ import {
 } from "../dynamic-agent.js";
 import { setPeerContext } from "../context-store.js";
 import { chunkTextToByteLimit } from "../shared/byte-chunking.js";
+import { createSendPacer } from "../shared/send-pacing.js";
 import { MESSAGE_BYTE_LIMITS } from "../types/constants.js";
 import { getWecomRuntime } from "../runtime.js";
 import { registerWecomSourceSnapshot } from "../runtime/source-registry.js";
@@ -957,6 +958,8 @@ async function processAgentMessage(params: {
 
   // 发送队列锁：确保所有 deliver 调用（以及内部的分片发送）严格串行执行
   let messageSendQueue = Promise.resolve();
+  // 会话级节流：跨 deliver 调用共享，否则相邻两个 Block 的首尾两片仍可能同秒到达。
+  const paceSend = createSendPacer();
   let deferredMediaUrls: string[] = [];
 
   const mergeDeferredMediaUrls = (mediaUrls: string[]): string[] => {
@@ -1032,6 +1035,8 @@ async function processAgentMessage(params: {
               const chunk = replyChunks[chunkIndex]!;
 
               try {
+                // 隔开相邻两片：企微不保证同一收件人连续多条消息的投递顺序。
+                await paceSend();
                 if (upstreamAgent) {
                   const sendUpstream = asMarkdown
                     ? sendUpstreamAgentApiMarkdown
@@ -1050,11 +1055,6 @@ async function processAgentMessage(params: {
                 log?.(
                   `[wecom-agent] reply chunk delivered (${info.kind}) to ${isGroup ? `chat:${peerId}` : fromUser}, len=${chunk.length}, sessionKey=${ctxPayload.SessionKey ?? route.sessionKey}, sessionId=${sessionId ?? "N/A"}`,
                 );
-
-                // 强制延时：确保企业微信有足够时间处理顺序（优化：200ms → 50ms）
-                if (chunkIndex + 1 < replyChunks.length) {
-                  await new Promise((resolve) => setTimeout(resolve, 50));
-                }
               } catch (err: unknown) {
                 const message =
                   err instanceof Error
@@ -1124,11 +1124,6 @@ async function processAgentMessage(params: {
                 }
               }
               deferredMediaUrls = [];
-            }
-
-            // 不同 Block 之间也增加一点间隔（优化：200ms → 50ms）
-            if (info.kind !== "final") {
-              await new Promise((resolve) => setTimeout(resolve, 50));
             }
           };
 

@@ -2,6 +2,7 @@ import type { ResolvedAgentAccount } from "../../types/index.js";
 import { prepareWecomMarkdownChunks, prepareWecomTextChunks } from "../../config/markdown.js";
 import { getWecomRuntime } from "../../runtime.js";
 import { utf8ByteLength } from "../../shared/byte-chunking.js";
+import { createSendPacer } from "../../shared/send-pacing.js";
 import { resolveScopedWecomTarget } from "../../target.js";
 import { deliverUpstreamAgentApiMarkdown, deliverUpstreamAgentApiMedia, deliverUpstreamAgentApiText } from "../../transport/agent-api/upstream-delivery.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
@@ -75,8 +76,11 @@ export class WecomUpstreamAgentDeliveryService {
     );
 
     const messageIds: string[] = [];
+    // 隔开相邻两片，理由见 shared/send-pacing.ts。
+    const pace = createSendPacer();
     for (const chunk of chunks) {
       if (!chunk.trim()) continue;
+      await pace();
       const result =
         asMarkdown
           ? await deliverUpstreamAgentApiMarkdown({

@@ -7,6 +7,7 @@ import {
   resolveWecomMarkdownFormat,
 } from "../../config/index.js";
 import { WECOM_TEXT_CHUNK_BYTE_LIMIT } from "../agent/delivery-service.js";
+import { createSendPacer } from "../../shared/send-pacing.js";
 import { wecomFetch } from "../../http.js";
 import { LIMITS } from "../../monitor/state.js";
 import type { StreamState } from "../../types/legacy-stream.js";
@@ -119,9 +120,12 @@ export async function sendAgentDmText(params: {
         params.core.channel.text.chunkText(value, charLimit),
       );
   const send = asMarkdown ? sendAgentMarkdown : sendAgentText;
+  // 隔开相邻两片，理由见 shared/send-pacing.ts。
+  const pace = createSendPacer();
   for (const chunk of chunks) {
     const trimmed = chunk.trim();
     if (!trimmed) continue;
+    await pace();
     await send({ agent: params.agent, toUser: params.userId, text: trimmed });
   }
 }
