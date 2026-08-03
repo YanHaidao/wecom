@@ -360,28 +360,20 @@ export async function sendText(params: {
   });
 }
 
+/**
+ * msgtype 为 markdown。群会话（chatId）同样支持：手册 90248 的
+ * appchat/send 有 markdown 消息章节（chatid + markdown.content，2048 字节）。
+ */
 export async function sendMarkdown(params: {
   agent: ResolvedAgentAccount;
   toUser?: string;
   toParty?: string;
   toTag?: string;
-  /**
-   * 企微 markdown 不支持 appchat/send，所以群会话目标无法用这个 msgtype 发送。
-   * 传了就抛错：静默丢弃会让 body 里一个收件人字段都不剩，
-   * 变成企微直接拒绝的空投递请求。调用方应改用 sendText。
-   */
   chatId?: string;
   text: string;
 }): Promise<AgentSendResult> {
-  const { chatId, ...target } = params;
-  if (chatId) {
-    throw new Error(
-      `send markdown failed: 企微 markdown 消息不支持群会话（chatId=${chatId}），` +
-        `appchat/send 无 markdown msgtype。请对群目标改用 sendText。`,
-    );
-  }
   return dispatchAgentApi({
-    target,
+    target: params,
     msgtype: "markdown",
     content: { content: params.text },
     errorLabel: "markdown",

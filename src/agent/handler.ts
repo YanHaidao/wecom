@@ -986,17 +986,9 @@ async function processAgentMessage(params: {
           // Agent 回调回复不经过 wecomOutbound，所以要自己解析账号配置，
           // 否则 markdown.format 对这条路径不生效。
           //
-          // 群会话回落纯文本：企微 markdown 没有 appchat/send 变体，
-          // 而这条路径必须把回复发出去，宁可降级格式也不要发送失败。
-          const markdownConfigured =
+          // 群会话不需要特殊处理：appchat/send 有 markdown msgtype（手册 90248）。
+          const asMarkdown =
             resolveWecomMarkdownFormat(config, effectiveAgent.accountId) === "markdown";
-          const replyTargetIsChat = Boolean(effectiveReplyTarget.chatId);
-          const asMarkdown = markdownConfigured && !replyTargetIsChat;
-          if (markdownConfigured && replyTargetIsChat) {
-            log?.(
-              `[wecom-agent] markdown 配置对群会话不适用，本条回落纯文本 chatId=${String(peerId)}`,
-            );
-          }
           const outboundText = text;
 
           if ((!outboundText || !outboundText.trim()) && mediaUrls.length === 0) {

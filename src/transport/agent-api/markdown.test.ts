@@ -65,30 +65,45 @@ describe("Agent API markdown", () => {
     );
   });
 
-  // Dropping chatId silently used to leave the body with no recipient field at
-  // all (no touser/toparty/totag/chatid), which WeCom rejects. A chat target
-  // that sendText can deliver must fail loudly here, not produce a bad request.
-  it("rejects chat targets instead of sending a recipient-less request", async () => {
+  // 手册 90248（应用推送消息）有 markdown 消息章节：chatid + msgtype:markdown。
+  // 群会话不需要降级成纯文本。
+  it("sends msgtype=markdown to appchat/send for chat targets", async () => {
     const { sendMarkdown } = await import("./core.js");
+    fetchMock.mockResolvedValueOnce(jsonResponse({ errcode: 0 }));
 
-    await expect(sendMarkdown({ agent, chatId: "wrCHAT", text: "# hi" })).rejects.toThrow(
-      /不支持群会话.*wrCHAT/s,
-    );
-    // Rejected before any send; only the beforeEach token mock is unconsumed.
-    expect(fetchMock).not.toHaveBeenCalled();
+    await sendMarkdown({ agent, chatId: "wrCHAT", text: "# hi" });
+
+    expect(fetchMock.mock.calls[1][0]).toContain("/cgi-bin/appchat/send");
+    expect(bodyOf(1)).toMatchObject({
+      chatid: "wrCHAT",
+      msgtype: "markdown",
+      markdown: { content: "# hi" },
+    });
+    // appchat/send 不带 agentid。
+    expect(bodyOf(1)).not.toHaveProperty("agentid");
   });
 
-  it("rejects chat targets on the upstream path too", async () => {
+  it("sends msgtype=markdown to appchat/send on the upstream path too", async () => {
     const { sendUpstreamAgentApiMarkdown } = await import("./client.js");
+    // 上游 token 要两跳：beforeEach 的那次是主企业 token，这里补下游企业 token。
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse({ errcode: 0, access_token: "token-up", expires_in: 7200 }),
+    );
+    fetchMock.mockResolvedValueOnce(jsonResponse({ errcode: 0 }));
 
-    await expect(
-      sendUpstreamAgentApiMarkdown({
-        upstreamAgent: agent,
-        primaryAgent: agent,
-        chatId: "wrCHAT",
-        text: "# hi",
-      }),
-    ).rejects.toThrow(/不支持群会话.*wrCHAT/s);
-    expect(fetchMock).not.toHaveBeenCalled();
+    await sendUpstreamAgentApiMarkdown({
+      upstreamAgent: agent,
+      primaryAgent: agent,
+      chatId: "wrCHAT",
+      text: "# hi",
+    });
+
+    const lastCall = fetchMock.mock.calls.at(-1)!;
+    expect(lastCall[0]).toContain("/cgi-bin/appchat/send");
+    expect(JSON.parse((lastCall[1] as { body: string }).body)).toMatchObject({
+      chatid: "wrCHAT",
+      msgtype: "markdown",
+      markdown: { content: "# hi" },
+    });
   });
 });
