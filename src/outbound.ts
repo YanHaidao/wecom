@@ -485,8 +485,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
       return [text];
     }
   },
-  sendText: async (ctx: WecomOutboundContext) => {
-    const { cfg, to, text, accountId, sessionKey } = ctx;
+  sendText: async ({ cfg, to, text, accountId, sessionKey }: WecomOutboundContext) => {
     // signal removed - not supported in current SDK
     // Defer Agent resolution until the Agent fallback path
     // sendTextViaBotWs() can already deliver without Agent mode

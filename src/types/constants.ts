@@ -28,19 +28,12 @@ export const API_ENDPOINTS = {
  */
 export const MESSAGE_BYTE_LIMITS = {
   /**
-   * 自建应用 message/send 的 text 与 markdown，以及 appchat/send 的 text。
-   * 三者都是 2048 字节。
+   * 自建应用 message/send 的 text 与 markdown，以及 appchat/send 的
+   * text 与 markdown。四者都是 2048 字节。
    * https://developer.work.weixin.qq.com/document/path/90236
    * https://developer.work.weixin.qq.com/document/path/90248
    */
   AGENT_MESSAGE: 2_048,
-  /**
-   * 群机器人 webhook 的 markdown / markdown_v2。text 仍是 2048。
-   * https://developer.work.weixin.qq.com/document/path/91770
-   */
-  BOT_WEBHOOK_MARKDOWN: 4_096,
-  /** 群机器人 webhook 的 text。 */
-  BOT_WEBHOOK_TEXT: 2_048,
   /**
    * 智能机器人 WS 流式回复的 stream.content。
    * 见 @wecom/aibot-node-sdk 的 StreamReplyBody：

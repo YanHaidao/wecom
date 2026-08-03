@@ -73,12 +73,26 @@ const ERROR_HELP = "\n\n遇到问题？联系作者: YanHaidao (微信: YanHaida
  */
 const AGENT_REPLY_CHUNK_CHARS = 600;
 
-/** 定长切分，等价于原先内联的 `slice(i, i + MAX_CHUNK_SIZE)` 循环。 */
+/**
+ * 定长切分，等价于原先内联的 `slice(i, i + MAX_CHUNK_SIZE)` 循环，
+ * 但按码点计数，emoji 这类代理对不会被劈成两个半字符。
+ */
 function sliceByLength(text: string, limit: number): string[] {
   const chunks: string[] = [];
-  for (let i = 0; i < text.length; i += limit) {
-    chunks.push(text.slice(i, i + limit));
+  let current = "";
+  let count = 0;
+
+  for (const char of text) {
+    if (count >= limit) {
+      chunks.push(current);
+      current = "";
+      count = 0;
+    }
+    current += char;
+    count += 1;
   }
+
+  if (current) chunks.push(current);
   return chunks;
 }
 
