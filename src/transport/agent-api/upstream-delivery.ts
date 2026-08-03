@@ -1,14 +1,24 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import type { WecomTarget } from "../../target.js";
-import { sendUpstreamAgentApiMediaReply, sendUpstreamAgentApiTextReply } from "./upstream-reply.js";
+import { sendUpstreamAgentApiMarkdownReply, sendUpstreamAgentApiMediaReply, sendUpstreamAgentApiTextReply } from "./upstream-reply.js";
+import type { AgentSendResult } from "./core.js";
 
 export async function deliverUpstreamAgentApiText(params: {
   upstreamAgent: ResolvedAgentAccount;
   primaryAgent: ResolvedAgentAccount;
   target: WecomTarget;
   text: string;
-}): Promise<void> {
-  await sendUpstreamAgentApiTextReply(params);
+}): Promise<AgentSendResult> {
+  return sendUpstreamAgentApiTextReply(params);
+}
+
+export async function deliverUpstreamAgentApiMarkdown(params: {
+  upstreamAgent: ResolvedAgentAccount;
+  primaryAgent: ResolvedAgentAccount;
+  target: WecomTarget;
+  text: string;
+}): Promise<AgentSendResult> {
+  return sendUpstreamAgentApiMarkdownReply(params);
 }
 
 export async function deliverUpstreamAgentApiMedia(params: {
@@ -19,7 +29,7 @@ export async function deliverUpstreamAgentApiMedia(params: {
   filename: string;
   contentType: string;
   text?: string;
-}): Promise<void> {
+}): Promise<AgentSendResult> {
   let mediaType: "image" | "voice" | "video" | "file" = "file";
   if (params.contentType.startsWith("image/")) mediaType = "image";
   else if (params.contentType.startsWith("audio/")) mediaType = "voice";
@@ -33,7 +43,7 @@ export async function deliverUpstreamAgentApiMedia(params: {
     buffer: params.buffer,
     filename: params.filename,
   });
-  await sendUpstreamAgentApiMediaReply({
+  return sendUpstreamAgentApiMediaReply({
     upstreamAgent: params.upstreamAgent,
     primaryAgent: params.primaryAgent,
     target: params.target,

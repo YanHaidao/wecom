@@ -1,13 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import os from "node:os";
+import path from "node:path";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BotWsPushHandle } from "./app/index.js";
+import { utf8ByteLength } from "./shared/byte-chunking.js";
 
 vi.mock("./transport/agent-api/core.js", () => ({
+  sendMarkdown: vi.fn(),
   sendText: vi.fn(),
   sendMedia: vi.fn(),
   uploadMedia: vi.fn(),
 }));
 
 describe("wecomOutbound", () => {
+  async function createTempMediaFile(filename = "media.png"): Promise<string> {
+    const dir = await mkdtemp(path.join(os.tmpdir(), "wecom-outbound-"));
+    const filePath = path.join(dir, filename);
+    await writeFile(filePath, Buffer.from([1, 2, 3]));
+    return filePath;
+  }
+
   const createBotWsHandle = (overrides: Partial<BotWsPushHandle> = {}): BotWsPushHandle => ({
     isConnected: () => true,
     sendMarkdown: vi.fn().mockResolvedValue(undefined),
@@ -15,6 +27,14 @@ describe("wecomOutbound", () => {
     sendMedia: vi.fn().mockResolvedValue({ ok: true, messageId: "ws-media-1" }),
     ...overrides,
   });
+
+  // Loading ./outbound.js pulls in the whole channel graph and takes ~1.5s the
+  // first time. Modules are never reset here, so that cost used to land on
+  // whichever test imported first, pushing it past the 5s default timeout under
+  // full-suite CPU contention. Pay it once up front instead.
+  beforeAll(async () => {
+    await import("./outbound.js");
+  }, 60_000);
 
   beforeEach(async () => {
     const runtime = await import("./runtime.js");
@@ -172,6 +192,213 @@ describe("wecomOutbound", () => {
     now.mockRestore();
   });
 
+  describe("account markdown config", () => {
+    // An ordinary agent reply reaches sendText carrying only core's outbound
+    // fields, so account/channel config is the only lever that can affect it.
+    const cfgWith = (markdown?: Record<string, unknown>) => ({
+      channels: {
+        wecom: {
+          enabled: true,
+          defaultAccount: "blue",
+          accounts: {
+            blue: {
+              enabled: true,
+              ...(markdown ? { markdown } : {}),
+              agent: {
+                corpId: "corp-blue",
+                corpSecret: "secret",
+                agentId: 1000015,
+                token: "t",
+                encodingAESKey: "a",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    it("sends a plain reply as markdown when the account is configured for it", async () => {
+      const { wecomOutbound } = await import("./outbound.js");
+      const api = await import("./transport/agent-api/core.js");
+      (api.sendText as any).mockClear();
+      (api.sendMarkdown as any).mockClear();
+      (api.sendMarkdown as any).mockResolvedValue({ msgid: "cfg-md-1", deliveredFormat: "markdown" });
+
+      const result = await wecomOutbound.sendText({
+        cfg: cfgWith({ format: "markdown" }),
+        to: "user:GuanXiaoPeng",
+        text: "**bold** and `code`",
+      } as any);
+
+      expect(api.sendMarkdown).toHaveBeenCalled();
+      expect(api.sendText).not.toHaveBeenCalled();
+      expect(result.messageId).toBe("cfg-md-1");
+    });
+
+    it("reads the channel-level setting when the account has none", async () => {
+      const { wecomOutbound } = await import("./outbound.js");
+      const api = await import("./transport/agent-api/core.js");
+      (api.sendText as any).mockClear();
+      (api.sendMarkdown as any).mockClear();
+      (api.sendMarkdown as any).mockResolvedValue({ msgid: "chan-md-1" });
+
+      const cfg = {
+        channels: {
+          wecom: {
+            enabled: true,
+            markdown: { format: "markdown" },
+            agent: { corpId: "corp", corpSecret: "secret", agentId: 1000002, token: "t", encodingAESKey: "a" },
+          },
+        },
+      };
+
+      await wecomOutbound.sendText({ cfg, to: "user:zhangsan", text: "# hi" } as any);
+
+      expect(api.sendMarkdown).toHaveBeenCalled();
+      expect(api.sendText).not.toHaveBeenCalled();
+    });
+
+    it("still sends plain text when the account is not configured", async () => {
+      const { wecomOutbound } = await import("./outbound.js");
+      const api = await import("./transport/agent-api/core.js");
+      (api.sendText as any).mockClear();
+      (api.sendMarkdown as any).mockClear();
+      (api.sendText as any).mockResolvedValue({ msgid: "cfg-txt-1", deliveredFormat: "text" });
+
+      await wecomOutbound.sendText({
+        cfg: cfgWith(),
+        to: "user:GuanXiaoPeng",
+        text: "**bold**",
+      } as any);
+
+      expect(api.sendText).toHaveBeenCalled();
+      expect(api.sendMarkdown).not.toHaveBeenCalled();
+    });
+
+    it("ignores unrecognized config values and stays on text", async () => {
+      const { wecomOutbound } = await import("./outbound.js");
+      const api = await import("./transport/agent-api/core.js");
+      (api.sendText as any).mockClear();
+      (api.sendMarkdown as any).mockClear();
+      (api.sendText as any).mockResolvedValue({ msgid: "bad-cfg-1" });
+
+      await wecomOutbound.sendText({
+        cfg: cfgWith({ format: "textcard" }),
+        to: "user:GuanXiaoPeng",
+        text: "hi",
+      } as any);
+
+      expect(api.sendText).toHaveBeenCalled();
+      expect(api.sendMarkdown).not.toHaveBeenCalled();
+    });
+  });
+
+  it("routes markdown to the Agent markdown API and uses the returned msgid", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const api = await import("./transport/agent-api/core.js");
+    (api.sendText as any).mockClear();
+    (api.sendMarkdown as any).mockClear();
+    (api.sendMarkdown as any).mockResolvedValue({ msgid: "wecom-md-1" });
+
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          markdown: { format: "markdown" },
+          agent: {
+            corpId: "corp",
+            corpSecret: "secret",
+            agentId: 1000002,
+            token: "token",
+            encodingAESKey: "aes",
+          },
+        },
+      },
+    };
+
+    const result = await wecomOutbound.sendText({
+      cfg,
+      to: "user:zhangsan",
+      text: "**hello**",
+    } as any);
+
+    expect(api.sendText).not.toHaveBeenCalled();
+    expect(api.sendMarkdown).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toUser: "zhangsan",
+        text: expect.stringContaining("hello"),
+      }),
+    );
+    expect(result.messageId).toBe("wecom-md-1");
+  });
+
+  it("converts markdown before chunking so conversion growth is not truncated", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const api = await import("./transport/agent-api/core.js");
+    (api.sendMarkdown as any).mockClear();
+    (api.sendMarkdown as any).mockResolvedValue({ msgid: "chunk-1" });
+
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          markdown: { format: "markdown" },
+          agent: { corpId: "corp", corpSecret: "secret", agentId: 1000002, token: "t", encodingAESKey: "a" },
+        },
+      },
+    };
+
+    // Markdown image syntax expands during conversion. Just under the 2048 limit
+    // before conversion, over it after — so it must be split, not silently cut.
+    const line = "![alt-text-here](https://example.com/some/image/path.png)";
+    const text = Array.from({ length: 35 }, () => line).join("\n");
+    const { toWeComMarkdownV2 } = await import("./wecom_msg_adapter/markdown_adapter.js");
+    // Input fits in one chunk; the converted form does not.
+    expect(text.length).toBeLessThan(2048);
+    expect(toWeComMarkdownV2(text, { flavor: "app", maxLength: null }).length).toBeGreaterThan(2048);
+
+    await wecomOutbound.sendText({ cfg, to: "user:zhangsan", text } as any);
+
+    const calls = (api.sendMarkdown as any).mock.calls;
+    expect(calls.length).toBeGreaterThan(1);
+    for (const [arg] of calls) {
+      expect(utf8ByteLength(arg.text)).toBeLessThanOrEqual(2048);
+    }
+    // No content lost: every chunk together still carries all the links.
+    const joined = calls.map(([arg]: any[]) => arg.text).join("\n");
+    expect(joined).toContain("example.com/some/image/path.png");
+  });
+
+  it("splits long Chinese replies on bytes, not characters", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const api = await import("./transport/agent-api/core.js");
+    (api.sendText as any).mockClear();
+    (api.sendText as any).mockResolvedValue({ msgid: "cn-1" });
+
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          agent: { corpId: "corp", corpSecret: "secret", agentId: 1000002, token: "t", encodingAESKey: "a" },
+        },
+      },
+    };
+
+    // Under 2048 characters but well over 2048 bytes — WeCom would truncate it.
+    const text = "企业微信长文本消息".repeat(167);
+    expect(text.length).toBeLessThan(2048);
+    expect(utf8ByteLength(text)).toBeGreaterThan(2048);
+
+    await wecomOutbound.sendText({ cfg, to: "user:zhangsan", text } as any);
+
+    const calls = (api.sendText as any).mock.calls;
+    expect(calls.length).toBeGreaterThan(1);
+    for (const [arg] of calls) {
+      expect(utf8ByteLength(arg.text)).toBeLessThanOrEqual(2048);
+    }
+    expect(calls.map(([arg]: any[]) => arg.text).join("")).toBe(text);
+  });
+
   it("suppresses /new ack for bot sessions but not agent sessions", async () => {
     const { wecomOutbound } = await import("./outbound.js");
     const api = await import("./transport/agent-api/core.js");
@@ -284,6 +511,56 @@ describe("wecomOutbound", () => {
     expect(result.messageId).toBe("bot-ws-789");
 
     now.mockRestore();
+  });
+
+  it("always delivers Bot WS as markdown, the only msgtype that transport has", async () => {
+    // The Bot WS SDK's SendMsgBody has no text msgtype, so markdown.format does
+    // not apply to this transport — it renders as markdown either way.
+    const { wecomOutbound } = await import("./outbound.js");
+    const runtime = await import("./runtime.js");
+    const sendMarkdown = vi.fn().mockResolvedValue(undefined);
+    runtime.registerBotWsPushHandle("acct-ws", createBotWsHandle({ sendMarkdown }));
+
+    const cfg = (markdown?: Record<string, unknown>) => ({
+      channels: {
+        wecom: {
+          enabled: true,
+          defaultAccount: "acct-ws",
+          accounts: {
+            "acct-ws": {
+              enabled: true,
+              ...(markdown ? { markdown } : {}),
+              bot: { primaryTransport: "ws", ws: { botId: "bot-1", secret: "secret-1" } },
+              agent: {
+                corpId: "corp-ws",
+                corpSecret: "agent-secret",
+                agentId: 10001,
+                token: "token-ws",
+                encodingAESKey: "aes-ws",
+              },
+            },
+          },
+        },
+      },
+    });
+
+    // Whether markdown.format is unset or explicitly "text", this transport
+    // still delivers markdown.
+    for (const [label, markdown] of [
+      ["unconfigured", undefined],
+      ["configured text", { format: "text" }],
+      ["configured markdown", { format: "markdown" }],
+    ] as const) {
+      sendMarkdown.mockClear();
+      await wecomOutbound.sendText({
+        cfg: cfg(markdown as Record<string, unknown> | undefined),
+        accountId: "acct-ws",
+        to: "user:lisi",
+        text: "**bold**",
+      } as any);
+
+      expect(sendMarkdown, label).toHaveBeenCalled();
+    }
   });
 
   it("keeps agent-source sessions on the Agent text path even when ws is primary", async () => {
@@ -628,12 +905,14 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("media.png");
+
     await wecomOutbound.sendMedia({
       cfg,
       sessionKey: "agent:ops_bot:wecom:default:dm:zhangsan",
       to: "user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/media.png",
+      mediaUrl,
     } as any);
 
     expect(sendMedia).not.toHaveBeenCalled();
@@ -753,11 +1032,13 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("media.png");
+
     await wecomOutbound.sendMedia({
       cfg,
       to: "user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/media.png",
+      mediaUrl,
     } as any);
 
     expect(sendMedia).not.toHaveBeenCalled();
@@ -966,11 +1247,13 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("media.png");
+
     await wecomOutbound.sendMedia({
       cfg,
       to: "wecom-agent:default:user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/media.png",
+      mediaUrl,
     } as any);
 
     expect(sendMedia).not.toHaveBeenCalled();
@@ -1028,6 +1311,50 @@ describe("wecomOutbound", () => {
     expect(api.sendText).not.toHaveBeenCalled();
 
     upstreamSpy.mockRestore();
+  });
+
+  it("honors markdown config on the upstream delivery path", async () => {
+    const { wecomOutbound } = await import("./outbound.js");
+    const client = await import("./transport/agent-api/client.js");
+    const textSpy = vi.spyOn(client, "sendUpstreamAgentApiText").mockResolvedValue(undefined as never);
+    const markdownSpy = vi
+      .spyOn(client, "sendUpstreamAgentApiMarkdown")
+      .mockResolvedValue({ msgid: "up-md-cfg-1" } as never);
+
+    const cfg = {
+      channels: {
+        wecom: {
+          enabled: true,
+          markdown: { format: "markdown" },
+          agent: {
+            corpId: "corp-main",
+            corpSecret: "secret-main",
+            agentId: 1000002,
+            token: "token-main",
+            encodingAESKey: "aes-main",
+            upstreamCorps: { partner: { corpId: "corp-up", agentId: 2000001 } },
+          },
+        },
+      },
+    };
+
+    const result = await wecomOutbound.sendText({
+      cfg,
+      to: "wecom-agent-upstream:default:corp-up:zhangsan",
+      text: "**hello**",
+    } as any);
+
+    expect(markdownSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        toUser: "zhangsan",
+        text: expect.stringContaining("hello"),
+      }),
+    );
+    expect(textSpy).not.toHaveBeenCalled();
+    expect(result.messageId).toBe("up-md-cfg-1");
+
+    textSpy.mockRestore();
+    markdownSpy.mockRestore();
   });
 
   it("routes plain agent targets to upstream delivery when session source snapshot carries upstream corp", async () => {
@@ -1137,12 +1464,14 @@ describe("wecomOutbound", () => {
       },
     };
 
+    const mediaUrl = await createTempMediaFile("file.md");
+
     await wecomOutbound.sendMedia({
       cfg,
       accountId: "default",
       to: "wecom-agent:default:user:zhangsan",
       text: "caption",
-      mediaUrl: "https://example.com/file.md",
+      mediaUrl,
     } as any);
 
     expect(upstreamUploadSpy).toHaveBeenCalledWith(

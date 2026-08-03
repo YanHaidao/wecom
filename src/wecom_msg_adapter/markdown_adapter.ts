@@ -1,13 +1,41 @@
 /**
- * 将较完整的 Markdown 降级转换为更适合企业微信 markdown_v2 的子集。
+ * 企业微信的两套 markdown 子集，语法范围不同，不能混用。
+ *
+ * - `v2`：群机器人 / 智能机器人的 `markdown_v2`（手册 91770）。
+ *   支持斜体、列表、表格、图片、分割线、代码块，但不支持字体颜色。
+ * - `app`：自建应用 `message/send` / `appchat/send` 的 `markdown`
+ *   （手册 90236 附录）。只支持标题、加粗、链接、行内代码、引用、字体颜色，
+ *   没有斜体与列表——留着这些标记会原样显示成字面量。
+ */
+export type WecomMarkdownFlavor = "app" | "v2";
+
+export type ToWeComMarkdownOptions = {
+  /** 目标语法子集，默认 `v2`。 */
+  flavor?: WecomMarkdownFlavor;
+  /**
+   * 字符上限，超出按行截断并追加提示。
+   *
+   * 传 `null` 表示不截断——调用方自己按字节分片时必须这么传，
+   * 否则超出部分会在分片之前就被这里静默吃掉。
+   */
+  maxLength?: number | null;
+};
+
+/**
+ * 将较完整的 Markdown 降级转换为企业微信支持的 markdown 子集。
  *
  * 保守策略：
- * - 保留：标题、粗体、斜体、引用、链接、行内代码、普通列表、表格
- * - 降级：代码块、图片、任务列表、分隔线、HTML、脚注、复杂语法
+ * - 保留：标题、粗体、引用、链接、行内代码（`v2` 另外保留斜体与列表）
+ * - 降级：代码块、图片、任务列表、分隔线、表格、HTML、脚注、复杂语法
  * - 清理：多余空行、非法控制字符、过深嵌套
  */
-export function toWeComMarkdownV2(markdown: unknown, maxLength = 4096): string {
+export function toWeComMarkdownV2(
+  markdown: unknown,
+  options: ToWeComMarkdownOptions = {},
+): string {
   if (!markdown) return "";
+
+  const { flavor = "v2", maxLength = 4096 } = options;
 
   let text = String(markdown).replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 
@@ -25,12 +53,33 @@ export function toWeComMarkdownV2(markdown: unknown, maxLength = 4096): string {
   text = removeUnfriendlyExtensions(text);
   text = flattenDeepNesting(text);
   text = normalizeTables(text);
+  if (flavor === "app") {
+    text = downgradeToAppSubset(text);
+  }
   text = restoreInlineCodeSpans(text, inlineCodeStore);
   text = cleanupWhitespace(text);
 
   if (maxLength != null && text.length > maxLength) {
     text = truncateSafely(text, maxLength);
   }
+
+  return text;
+}
+
+/**
+ * 把 `v2` 才支持的语法降到自建应用的子集。
+ *
+ * 必须在 restoreInlineCodeSpans 之前跑，行内代码此时还是占位符，
+ * 不会被下面的正则误伤。
+ */
+function downgradeToAppSubset(text: string): string {
+  // 斜体 -> 普通文本。两侧的 (?![*\w]) / (?<![*\w]) 保证 `**bold**` 不被拆开，
+  // (?!\s) 保证行首的 `* item` 列表标记不被当成斜体。
+  text = text.replace(/(?<![*\w])\*(?!\s)([^*\n]+?)(?<!\s)\*(?![*\w])/g, "$1");
+  // `_斜体_` 不处理：下划线在 URL 与标识符里太常见，剥掉的误伤大于收益。
+
+  // 无序列表 -> 项目符号。有序列表保持原样，数字前缀本身就可读。
+  text = text.replace(/^(\s*)[-*+][ \t]+/gm, "$1• ");
 
   return text;
 }

@@ -22,6 +22,20 @@ export interface RoutingConfig {
   failClosedOnDefaultRoute?: boolean;
 }
 
+/**
+ * 文本渲染格式，可配在渠道级或账号级（账号优先）。
+ * 对齐 OpenClaw 的 markdown 配置模型，见 docs/concepts/markdown-formatting.md。
+ */
+export interface MarkdownConfig {
+  /** `text`（默认）纯文本；`markdown` 按企微 markdown 发送。 */
+  format?: "text" | "markdown";
+  /**
+   * 表格渲染方式，由 OpenClaw core 定义并消费（`resolveMarkdownTableMode`）。
+   * 在这里声明只是为了不把 core 的同名配置项挤掉。
+   */
+  tables?: "off" | "bullets" | "code" | "block";
+}
+
 export interface BotWsConfig {
   botId: string;
   secret: string;
@@ -66,6 +80,7 @@ export interface AccountConfig {
   enabled?: boolean;
   name?: string;
   mediaMaxMb?: number;
+  markdown?: MarkdownConfig;
   bot?: BotConfig;
   agent?: AgentConfig;
 }
@@ -74,6 +89,7 @@ export interface WecomConfigInput {
   enabled?: boolean;
   mediaMaxMb?: number;
   mediaDownloadTimeoutMs?: number;
+  markdown?: MarkdownConfig;
   bot?: BotConfig;
   agent?: AgentConfig;
   accounts?: Record<string, AccountConfig>;
@@ -83,8 +99,3 @@ export interface WecomConfigInput {
   routing?: RoutingConfig;
   dynamicAgents?: DynamicAgentsConfig;
 }
-
-/**
- * @deprecated No longer a Zod schema. Kept as a type-only export for backward compatibility.
- */
-export const WecomConfigSchema = undefined;

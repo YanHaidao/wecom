@@ -8,7 +8,12 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 import type { WecomAccountRuntime } from "../app/account-runtime.js";
-import { resolveWecomMediaMaxBytes, shouldRejectWecomDefaultRoute } from "../config/index.js";
+import {
+  prepareWecomMarkdownChunks,
+  resolveWecomMarkdownFormat,
+  resolveWecomMediaMaxBytes,
+  shouldRejectWecomDefaultRoute,
+} from "../config/index.js";
 import {
   buildAgentSessionTarget,
   generateAgentId,
@@ -16,6 +21,9 @@ import {
   ensureDynamicAgentListed,
 } from "../dynamic-agent.js";
 import { setPeerContext } from "../context-store.js";
+import { chunkTextToByteLimit } from "../shared/byte-chunking.js";
+import { createSendPacer } from "../shared/send-pacing.js";
+import { MESSAGE_BYTE_LIMITS } from "../types/constants.js";
 import { getWecomRuntime } from "../runtime.js";
 import { registerWecomSourceSnapshot } from "../runtime/source-registry.js";
 import {
@@ -37,7 +45,9 @@ import { resolveOutboundMediaAsset } from "../shared/media-asset.js";
 import {
   downloadAgentApiMedia,
   downloadUpstreamAgentApiMedia,
+  sendAgentApiMarkdown,
   sendAgentApiText,
+  sendUpstreamAgentApiMarkdown,
   sendUpstreamAgentApiText,
 } from "../transport/agent-api/client.js";
 import { deliverAgentApiMedia } from "../transport/agent-api/delivery.js";
@@ -55,6 +65,47 @@ import { detectUpstreamUser, createUpstreamAgentConfig, resolveUpstreamCorpConfi
 
 /** 错误提示信息 */
 const ERROR_HELP = "\n\n遇到问题？联系作者: YanHaidao (微信: YanHaidao)";
+
+/**
+ * Agent 回调回复的分片粒度，单位是字符。
+ *
+ * 沿用既有的 600：远低于企微 2048 字节上限，是刻意的——分批发送让用户
+ * 更早看到内容。所以这里保留字符语义，字节上限由下面的 byte-chunking 兜。
+ */
+const AGENT_REPLY_CHUNK_CHARS = 600;
+
+/**
+ * 定长切分，等价于原先内联的 `slice(i, i + MAX_CHUNK_SIZE)` 循环，
+ * 但按码点计数，emoji 这类代理对不会被劈成两个半字符。
+ */
+function sliceByLength(text: string, limit: number): string[] {
+  const chunks: string[] = [];
+  let current = "";
+  let count = 0;
+
+  for (const char of text) {
+    if (count >= limit) {
+      chunks.push(current);
+      current = "";
+      count = 0;
+    }
+    current += char;
+    count += 1;
+  }
+
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+/**
+ * 600 字符在多数内容下远低于 2048 字节，但不是所有：emoji 每字符 4 字节，
+ * 600 个就是 2400 字节，会超限被企微截断。所以切完再过一遍字节上限。
+ */
+function enforceReplyByteLimit(chunks: string[]): string[] {
+  return chunks.flatMap((chunk) =>
+    chunkTextToByteLimit(chunk, MESSAGE_BYTE_LIMITS.AGENT_MESSAGE, sliceByLength),
+  );
+}
 
 // Agent webhook 幂等去重池（防止企微回调重试导致重复回复）
 // 注意：这是进程内内存去重，重启会清空；但足以覆盖企微的短周期重试。
@@ -907,6 +958,8 @@ async function processAgentMessage(params: {
 
   // 发送队列锁：确保所有 deliver 调用（以及内部的分片发送）严格串行执行
   let messageSendQueue = Promise.resolve();
+  // 会话级节流：跨 deliver 调用共享，否则相邻两个 Block 的首尾两片仍可能同秒到达。
+  const paceSend = createSendPacer();
   let deferredMediaUrls: string[] = [];
 
   const mergeDeferredMediaUrls = (mediaUrls: string[]): string[] => {
@@ -947,11 +1000,28 @@ async function processAgentMessage(params: {
               ? mergeDeferredMediaUrls(incomingMediaUrls)
               : incomingMediaUrls;
 
+          // Agent 回调回复不经过 wecomOutbound，所以要自己解析账号配置，
+          // 否则 markdown.format 对这条路径不生效。
+          //
+          // 群会话不需要特殊处理：appchat/send 有 markdown msgtype（手册 90248）。
+          const asMarkdown =
+            resolveWecomMarkdownFormat(config, effectiveAgent.accountId) === "markdown";
           const outboundText = text;
 
           if ((!outboundText || !outboundText.trim()) && mediaUrls.length === 0) {
             return;
           }
+
+          // 纯文本沿用既有的定长切分；markdown 必须先整体转换再按语法边界分片，
+          // 否则转换后超限会被截断、`**bold**` 会被从中间劈开。
+          // 两条路径都再过一遍字节上限（600 字符的 emoji 可达 2400 字节）。
+          const replyChunks = asMarkdown
+            ? prepareWecomMarkdownChunks(
+                outboundText,
+                MESSAGE_BYTE_LIMITS.AGENT_MESSAGE,
+                AGENT_REPLY_CHUNK_CHARS,
+              )
+            : enforceReplyByteLimit(sliceByLength(outboundText, AGENT_REPLY_CHUNK_CHARS));
 
           // 标记已有回复，清除/失效定时器
           hasResponseSent = true;
@@ -960,31 +1030,31 @@ async function processAgentMessage(params: {
           // 将本次发送任务加入队列
           // 即使 deliver 被并发调用，队列中的任务也会按入队顺序串行执行
           const currentTask = async () => {
-            const MAX_CHUNK_SIZE = 600;
             // 确保分片顺序发送
-            for (let i = 0; i < outboundText.length; i += MAX_CHUNK_SIZE) {
-              const chunk = outboundText.slice(i, i + MAX_CHUNK_SIZE);
+            for (let chunkIndex = 0; chunkIndex < replyChunks.length; chunkIndex += 1) {
+              const chunk = replyChunks[chunkIndex]!;
 
               try {
+                // 隔开相邻两片：企微不保证同一收件人连续多条消息的投递顺序。
+                await paceSend();
                 if (upstreamAgent) {
-                  await sendUpstreamAgentApiText({
+                  const sendUpstream = asMarkdown
+                    ? sendUpstreamAgentApiMarkdown
+                    : sendUpstreamAgentApiText;
+                  await sendUpstream({
                     upstreamAgent,
                     primaryAgent: primaryAgentForUpstream!,
                     ...effectiveReplyTarget,
                     text: chunk,
                   });
                 } else {
-                  await sendAgentApiText({ agent: effectiveAgent, ...effectiveReplyTarget, text: chunk });
+                  const send = asMarkdown ? sendAgentApiMarkdown : sendAgentApiText;
+                  await send({ agent: effectiveAgent, ...effectiveReplyTarget, text: chunk });
                 }
                 touchTransportSession?.({ lastOutboundAt: Date.now(), running: true });
                 log?.(
                   `[wecom-agent] reply chunk delivered (${info.kind}) to ${isGroup ? `chat:${peerId}` : fromUser}, len=${chunk.length}, sessionKey=${ctxPayload.SessionKey ?? route.sessionKey}, sessionId=${sessionId ?? "N/A"}`,
                 );
-
-                // 强制延时：确保企业微信有足够时间处理顺序（优化：200ms → 50ms）
-                if (i + MAX_CHUNK_SIZE < outboundText.length) {
-                  await new Promise((resolve) => setTimeout(resolve, 50));
-                }
               } catch (err: unknown) {
                 const message =
                   err instanceof Error
@@ -1054,11 +1124,6 @@ async function processAgentMessage(params: {
                 }
               }
               deferredMediaUrls = [];
-            }
-
-            // 不同 Block 之间也增加一点间隔（优化：200ms → 50ms）
-            if (info.kind !== "final") {
-              await new Promise((resolve) => setTimeout(resolve, 50));
             }
           };
 
