@@ -29,6 +29,11 @@ export interface RoutingConfig {
 export interface MarkdownConfig {
   /** `text`（默认）纯文本；`markdown` 按企微 markdown 发送。 */
   format?: "text" | "markdown";
+  /**
+   * 表格渲染方式，由 OpenClaw core 定义并消费（`resolveMarkdownTableMode`）。
+   * 在这里声明只是为了不把 core 的同名配置项挤掉。
+   */
+  tables?: "off" | "bullets" | "code" | "block";
 }
 
 export interface BotWsConfig {
