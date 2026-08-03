@@ -107,9 +107,7 @@ chunkTextToByteLimit(toWeComMarkdownV2(text), maxBytes, chunkMarkdownText)
 
 ### P1：`unlicenseduser` 的处理方式待确认
 
-`core.ts` / `client.ts` 现在只对 `invaliduser` / `invalidparty` / `invalidtag` 抛错。企微在部分收件人无互通许可时会返回 `unlicenseduser`，**同时把消息投递给了其余人**。
-
-改成抛错在逻辑上与既有的 `invaliduser` 处理一致，但那是对现有可用发送的行为变更（原本算成功）。需要单独确认后再动。
+**已确认，维持不抛错。** `core.ts` / `client.ts` 只对 `invaliduser` / `invalidparty` / `invalidtag` 抛错。手册 90236 写明 `unlicenseduser` 伴随 `errcode: 0` 返回，且**消息已经投递给了其余收件人**（全员失败才是 81013）。当成失败抛出会让上层重试并重复投递，所以只记日志。
 
 ### P2：`auto` 格式（按内容嗅探）
 

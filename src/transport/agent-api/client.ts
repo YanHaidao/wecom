@@ -202,12 +202,12 @@ async function dispatchUpstreamAgentApi(params: {
     throw new Error(`send ${label}failed: ${json?.errcode} ${json?.errmsg}`);
   }
 
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag || json?.unlicenseduser) {
+  // unlicenseduser 不在抓错条件里，理由见 core.ts 的 dispatchAgentApi。
+  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
     const details = [
       json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
       json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
       json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
-      json.unlicenseduser ? `unlicenseduser=${json.unlicenseduser}` : "",
     ]
       .filter(Boolean)
       .join(", ");

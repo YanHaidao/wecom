@@ -326,12 +326,14 @@ async function dispatchAgentApi(params: {
     throw new Error(`send ${label}failed: ${json?.errcode} ${json?.errmsg}`);
   }
 
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag || json?.unlicenseduser) {
+  // unlicenseduser 不在抓错条件里：手册 90236 明确说它伴随 errcode=0 返回，
+  // 且消息已经投递给了其余收件人（全员失败才是 81013）。当成失败抛出会
+  // 让上层重试并重复投递，只需要上面那行日志能查到就够了。
+  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
     const details = [
       json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
       json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
       json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
-      json.unlicenseduser ? `unlicenseduser=${json.unlicenseduser}` : "",
     ]
       .filter(Boolean)
       .join(", ");

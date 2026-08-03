@@ -140,14 +140,24 @@ describe("upstream Agent API dispatch", () => {
     ).rejects.toThrow(/send failed: 81013/);
   });
 
-  it("reports partial failures including unlicenseduser", async () => {
+  it("treats unlicenseduser as a delivered send, not a failure", async () => {
     const { sendUpstreamAgentApiText } = await import("./client.js");
     fetchMock.mockResolvedValueOnce(
       jsonResponse({ errcode: 0, msgid: "up-1", unlicenseduser: "lisi" }),
     );
 
+    // 手册 90236：unlicenseduser 伴随 errcode=0 返回，消息已投递给其余收件人。
     await expect(
       sendUpstreamAgentApiText({ upstreamAgent, primaryAgent, toUser: "zhangsan", text: "hi" }),
-    ).rejects.toThrow(/send partial failure: unlicenseduser=lisi/);
+    ).resolves.toMatchObject({ msgid: "up-1" });
+  });
+
+  it("still reports partial failures for invaliduser", async () => {
+    const { sendUpstreamAgentApiText } = await import("./client.js");
+    fetchMock.mockResolvedValueOnce(jsonResponse({ errcode: 0, invaliduser: "lisi" }));
+
+    await expect(
+      sendUpstreamAgentApiText({ upstreamAgent, primaryAgent, toUser: "zhangsan", text: "hi" }),
+    ).rejects.toThrow(/send partial failure: invaliduser=lisi/);
   });
 });
