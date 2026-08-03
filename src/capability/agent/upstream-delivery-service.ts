@@ -1,120 +1,68 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
-import { prepareWecomMarkdownChunks, prepareWecomTextChunks } from "../../config/markdown.js";
-import { getWecomRuntime } from "../../runtime.js";
-import { utf8ByteLength } from "../../shared/byte-chunking.js";
-import { createSendPacer } from "../../shared/send-pacing.js";
-import { resolveScopedWecomTarget } from "../../target.js";
-import { deliverUpstreamAgentApiMarkdown, deliverUpstreamAgentApiMedia, deliverUpstreamAgentApiText } from "../../transport/agent-api/upstream-delivery.js";
-import { canUseAgentApiDelivery } from "./fallback-policy.js";
+import type { WecomTarget } from "../../target.js";
+import type { AgentSendResult } from "../../transport/agent-api/core.js";
 import {
-  WECOM_TEXT_CHUNK_BYTE_LIMIT,
-  type WecomAgentDeliveryResult,
-  type WecomAgentSendTextParams,
-} from "./delivery-service.js";
+  deliverUpstreamAgentApiMarkdown,
+  deliverUpstreamAgentApiMedia,
+  deliverUpstreamAgentApiText,
+} from "../../transport/agent-api/upstream-delivery.js";
+import { WecomAgentDeliveryBase, type WecomAgentSendMediaParams } from "./delivery-service.js";
 
 /**
- * 上下游企业消息发送服务
- * 
- * 使用下游企业的 access_token 和 agentId 发送消息
+ * 上下游企业消息发送服务。
+ *
+ * 只提供「用下游企业的 access_token 和 agentId 发」这一点差异，分片、节流、
+ * 日志与错误处理都复用 WecomAgentDeliveryBase——手册 93360 说明上下游用的是
+ * 同一套 API，区别仅在 token。
  */
-export class WecomUpstreamAgentDeliveryService {
+export class WecomUpstreamAgentDeliveryService extends WecomAgentDeliveryBase {
+  protected readonly logPrefix = "wecom-upstream-delivery";
+  protected readonly scopeLabel = "WeCom upstream outbound";
+
   constructor(
-    private readonly upstreamAgent: ResolvedAgentAccount,
+    /** 下游企业账号，基类的 account 就是它。 */
+    protected readonly account: ResolvedAgentAccount,
+    /** 上级企业账号，仅用于换取下游 token。 */
     private readonly primaryAgent: ResolvedAgentAccount,
-  ) { }
-
-  assertAvailable(): void {
-    if (!canUseAgentApiDelivery(this.upstreamAgent)) {
-      throw new Error(
-        `WeCom upstream outbound requires channels.wecom.accounts.<accountId>.agent.agentId for upstream corp=${this.upstreamAgent.corpId}.`,
-      );
-    }
+  ) {
+    super();
   }
 
-  resolveTargetOrThrow(to: string | undefined) {
-    const scoped = resolveScopedWecomTarget(to, this.upstreamAgent.accountId);
-    if (!scoped) {
-      console.error(`[wecom-upstream-delivery] missing target account=${this.upstreamAgent.accountId}`);
-      throw new Error("WeCom upstream outbound requires a target (userid, partyid, tagid or chatid).");
-    }
-    if (scoped.accountId && scoped.accountId !== this.upstreamAgent.accountId) {
-      console.error(
-        `[wecom-upstream-delivery] account mismatch current=${this.upstreamAgent.accountId} targetAccount=${scoped.accountId} raw=${String(to ?? "")}`,
-      );
-      throw new Error(
-        `WeCom upstream outbound account mismatch: target belongs to account=${scoped.accountId}, current account=${this.upstreamAgent.accountId}.`,
-      );
-    }
-    const target = scoped.target;
-    if (target.chatid) {
-      console.warn(
-        `[wecom-upstream-delivery] blocked chat target account=${this.upstreamAgent.accountId} chatId=${target.chatid}`,
-      );
-      throw new Error(
-        `企业微信（WeCom）上下游 Agent 主动发送不支持向群 chatId 发送（chatId=${target.chatid}）。` +
-        `请改为发送给用户（userid / user:xxx）。`,
-      );
-    }
-    return target;
+  protected unavailableMessage(): string {
+    return `WeCom upstream outbound requires channels.wecom.accounts.<accountId>.agent.agentId for upstream corp=${this.account.corpId}.`;
   }
 
-  async sendText(params: WecomAgentSendTextParams): Promise<WecomAgentDeliveryResult> {
-    this.assertAvailable();
-    const target = this.resolveTargetOrThrow(params.to);
-    const asMarkdown = params.format === "markdown";
-    const chunks = asMarkdown
-      ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT)
-      : prepareWecomTextChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT, (value, charLimit) =>
-          getWecomRuntime().channel.text.chunkText(value, charLimit),
-        );
-
-    console.log(
-      `[wecom-upstream-delivery] sendText account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} ` +
-        `to=${String(params.to ?? "")} format=${params.format} chars=${params.text.length} ` +
-        `bytes=${utf8ByteLength(params.text)} chunks=${chunks.length} ` +
-        `chunkBytes=[${chunks.map((c) => utf8ByteLength(c)).join(",")}]`,
+  protected blockedChatMessage(chatId: string): string {
+    return (
+      `企业微信（WeCom）上下游 Agent 主动发送不支持向群 chatId 发送（chatId=${chatId}）。` +
+      `请改为发送给用户（userid / user:xxx）。`
     );
-
-    const messageIds: string[] = [];
-    // 隔开相邻两片，理由见 shared/send-pacing.ts。
-    const pace = createSendPacer();
-    for (const chunk of chunks) {
-      if (!chunk.trim()) continue;
-      await pace();
-      const result =
-        asMarkdown
-          ? await deliverUpstreamAgentApiMarkdown({
-              upstreamAgent: this.upstreamAgent,
-              primaryAgent: this.primaryAgent,
-              target,
-              text: chunk,
-            })
-          : await deliverUpstreamAgentApiText({
-              upstreamAgent: this.upstreamAgent,
-              primaryAgent: this.primaryAgent,
-              target,
-              text: chunk,
-            });
-      if (result?.msgid) messageIds.push(result.msgid);
-    }
-
-    return { messageIds };
   }
 
-  async sendMedia(params: {
-    to: string | undefined;
-    text?: string;
-    buffer: Buffer;
-    filename: string;
-    contentType: string;
-  }): Promise<WecomAgentDeliveryResult> {
-    this.assertAvailable();
-    const target = this.resolveTargetOrThrow(params.to);
-    console.log(
-      `[wecom-upstream-delivery] sendMedia account=${this.upstreamAgent.accountId} corpId=${this.upstreamAgent.corpId} to=${String(params.to ?? "")} filename=${params.filename} contentType=${params.contentType}`,
-    );
-    const result = await deliverUpstreamAgentApiMedia({
-      upstreamAgent: this.upstreamAgent,
+  protected deliverText(target: WecomTarget, text: string): Promise<AgentSendResult> {
+    return deliverUpstreamAgentApiText({
+      upstreamAgent: this.account,
+      primaryAgent: this.primaryAgent,
+      target,
+      text,
+    });
+  }
+
+  protected deliverMarkdown(target: WecomTarget, text: string): Promise<AgentSendResult> {
+    return deliverUpstreamAgentApiMarkdown({
+      upstreamAgent: this.account,
+      primaryAgent: this.primaryAgent,
+      target,
+      text,
+    });
+  }
+
+  protected deliverMedia(
+    target: WecomTarget,
+    params: WecomAgentSendMediaParams,
+  ): Promise<AgentSendResult> {
+    return deliverUpstreamAgentApiMedia({
+      upstreamAgent: this.account,
       primaryAgent: this.primaryAgent,
       target,
       buffer: params.buffer,
@@ -122,6 +70,5 @@ export class WecomUpstreamAgentDeliveryService {
       contentType: params.contentType,
       text: params.text,
     });
-    return { messageIds: result?.msgid ? [result.msgid] : [] };
   }
 }

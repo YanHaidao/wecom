@@ -4,8 +4,9 @@ import {
   prepareWecomTextChunks,
   type WecomMarkdownFormat,
 } from "../../config/markdown.js";
-import { resolveScopedWecomTarget } from "../../target.js";
+import { resolveScopedWecomTarget, type WecomTarget } from "../../target.js";
 import { deliverAgentApiMarkdown, deliverAgentApiMedia, deliverAgentApiText } from "../../transport/agent-api/delivery.js";
+import type { AgentSendResult } from "../../transport/agent-api/core.js";
 import { canUseAgentApiDelivery } from "./fallback-policy.js";
 import { getWecomRuntime } from "../../runtime.js";
 import { utf8ByteLength } from "../../shared/byte-chunking.js";
@@ -31,41 +32,71 @@ export type WecomAgentSendTextParams = {
   format: WecomMarkdownFormat;
 };
 
-export class WecomAgentDeliveryService {
-  constructor(private readonly agent: ResolvedAgentAccount) { }
+export type WecomAgentSendMediaParams = {
+  to: string | undefined;
+  text?: string;
+  buffer: Buffer;
+  filename: string;
+  contentType: string;
+};
+
+/**
+ * 两条 Agent 投递路径（普通自建应用 / 上下游企业）的公共骨架。
+ *
+ * 两者的**接口完全相同**，差别只在用哪个 access_token 与哪个 agentid——
+ * 手册 93360「使用API接口」：① 取上级企业 access_token ② 取下级企业
+ * access_token ③ 用第②步的下级 token 调用同样的 API 接口。取 token 的
+ * 差异已经收在 transport/agent-api 的 AgentApiAuth 里，这一层不必再分叉。
+ *
+ * 所以分片、字节日志、发送节流、msgid 收集都放在这里，子类只提供账号、
+ * 日志前缀、几句错误文案和三个 deliver 入口。
+ */
+export abstract class WecomAgentDeliveryBase {
+  /** 目标解析、可用性判断与日志都按这个账号算；上下游场景下是**下游**账号。 */
+  protected abstract readonly account: ResolvedAgentAccount;
+  /** 日志前缀，例如 `wecom-agent-delivery`。 */
+  protected abstract readonly logPrefix: string;
+  /** 错误文案里的路径名，例如 `WeCom outbound`。 */
+  protected abstract readonly scopeLabel: string;
+  /** agentId 缺失时的报错信息：两条路径的配置项提示不同。 */
+  protected abstract unavailableMessage(): string;
+  /** 群目标被拒时的报错信息：两条路径的补充说明不同。 */
+  protected abstract blockedChatMessage(chatId: string): string;
+
+  protected abstract deliverText(target: WecomTarget, text: string): Promise<AgentSendResult>;
+  protected abstract deliverMarkdown(target: WecomTarget, text: string): Promise<AgentSendResult>;
+  protected abstract deliverMedia(
+    target: WecomTarget,
+    params: WecomAgentSendMediaParams,
+  ): Promise<AgentSendResult>;
 
   assertAvailable(): void {
-    if (!canUseAgentApiDelivery(this.agent)) {
-      throw new Error(
-        `WeCom outbound requires channels.wecom.accounts.<accountId>.agent.agentId (or legacy channels.wecom.agent.agentId) for account=${this.agent.accountId}.`,
-      );
+    if (!canUseAgentApiDelivery(this.account)) {
+      throw new Error(this.unavailableMessage());
     }
   }
 
-  resolveTargetOrThrow(to: string | undefined) {
-    const scoped = resolveScopedWecomTarget(to, this.agent.accountId);
+  resolveTargetOrThrow(to: string | undefined): WecomTarget {
+    const { accountId } = this.account;
+    const scoped = resolveScopedWecomTarget(to, accountId);
     if (!scoped) {
-      console.error(`[wecom-agent-delivery] missing target account=${this.agent.accountId}`);
-      throw new Error("WeCom outbound requires a target (userid, partyid, tagid or chatid).");
+      console.error(`[${this.logPrefix}] missing target account=${accountId}`);
+      throw new Error(`${this.scopeLabel} requires a target (userid, partyid, tagid or chatid).`);
     }
-    if (scoped.accountId && scoped.accountId !== this.agent.accountId) {
+    if (scoped.accountId && scoped.accountId !== accountId) {
       console.error(
-        `[wecom-agent-delivery] account mismatch current=${this.agent.accountId} targetAccount=${scoped.accountId} raw=${String(to ?? "")}`,
+        `[${this.logPrefix}] account mismatch current=${accountId} targetAccount=${scoped.accountId} raw=${String(to ?? "")}`,
       );
       throw new Error(
-        `WeCom outbound account mismatch: target belongs to account=${scoped.accountId}, current account=${this.agent.accountId}.`,
+        `${this.scopeLabel} account mismatch: target belongs to account=${scoped.accountId}, current account=${accountId}.`,
       );
     }
     const target = scoped.target;
     if (target.chatid) {
       console.warn(
-        `[wecom-agent-delivery] blocked chat target account=${this.agent.accountId} chatId=${target.chatid}`,
+        `[${this.logPrefix}] blocked chat target account=${accountId} chatId=${target.chatid}`,
       );
-      throw new Error(
-        `企业微信（WeCom）Agent 主动发送不支持向群 chatId 发送（chatId=${target.chatid}）。` +
-        `该路径在实际环境中经常失败（例如 86008：无权限访问该会话/会话由其他应用创建）。` +
-        `请改为发送给用户（userid / user:xxx），或由 Bot 模式在群内交付。`,
-      );
+      throw new Error(this.blockedChatMessage(target.chatid));
     }
     return target;
   }
@@ -82,9 +113,10 @@ export class WecomAgentDeliveryService {
 
     // 字节数与分片数一起打：企微按字节限长，只看字符数无法判断是否会被截断。
     console.log(
-      `[wecom-agent-delivery] sendText account=${this.agent.accountId} to=${String(params.to ?? "")} ` +
-        `format=${params.format} chars=${params.text.length} bytes=${utf8ByteLength(params.text)} ` +
-        `chunks=${chunks.length} chunkBytes=[${chunks.map((c) => utf8ByteLength(c)).join(",")}]`,
+      `[${this.logPrefix}] sendText account=${this.account.accountId} corpId=${this.account.corpId} ` +
+        `to=${String(params.to ?? "")} format=${params.format} chars=${params.text.length} ` +
+        `bytes=${utf8ByteLength(params.text)} chunks=${chunks.length} ` +
+        `chunkBytes=[${chunks.map((c) => utf8ByteLength(c)).join(",")}]`,
     );
 
     const messageIds: string[] = [];
@@ -94,34 +126,65 @@ export class WecomAgentDeliveryService {
       if (!chunk.trim()) continue;
       await pace();
       const result = asMarkdown
-        ? await deliverAgentApiMarkdown({ agent: this.agent, target, text: chunk })
-        : await deliverAgentApiText({ agent: this.agent, target, text: chunk });
+        ? await this.deliverMarkdown(target, chunk)
+        : await this.deliverText(target, chunk);
       if (result?.msgid) messageIds.push(result.msgid);
     }
 
     return { messageIds };
   }
 
-  async sendMedia(params: {
-    to: string | undefined;
-    text?: string;
-    buffer: Buffer;
-    filename: string;
-    contentType: string;
-  }): Promise<WecomAgentDeliveryResult> {
+  async sendMedia(params: WecomAgentSendMediaParams): Promise<WecomAgentDeliveryResult> {
     this.assertAvailable();
     const target = this.resolveTargetOrThrow(params.to);
     console.log(
-      `[wecom-agent-delivery] sendMedia account=${this.agent.accountId} to=${String(params.to ?? "")} filename=${params.filename} contentType=${params.contentType}`,
+      `[${this.logPrefix}] sendMedia account=${this.account.accountId} corpId=${this.account.corpId} ` +
+        `to=${String(params.to ?? "")} filename=${params.filename} contentType=${params.contentType}`,
     );
-    const result = await deliverAgentApiMedia({
-      agent: this.agent,
+    const result = await this.deliverMedia(target, params);
+    return { messageIds: result?.msgid ? [result.msgid] : [] };
+  }
+}
+
+export class WecomAgentDeliveryService extends WecomAgentDeliveryBase {
+  protected readonly logPrefix = "wecom-agent-delivery";
+  protected readonly scopeLabel = "WeCom outbound";
+
+  constructor(protected readonly account: ResolvedAgentAccount) {
+    super();
+  }
+
+  protected unavailableMessage(): string {
+    return `WeCom outbound requires channels.wecom.accounts.<accountId>.agent.agentId (or legacy channels.wecom.agent.agentId) for account=${this.account.accountId}.`;
+  }
+
+  protected blockedChatMessage(chatId: string): string {
+    return (
+      `企业微信（WeCom）Agent 主动发送不支持向群 chatId 发送（chatId=${chatId}）。` +
+      `该路径在实际环境中经常失败（例如 86008：无权限访问该会话/会话由其他应用创建）。` +
+      `请改为发送给用户（userid / user:xxx），或由 Bot 模式在群内交付。`
+    );
+  }
+
+  protected deliverText(target: WecomTarget, text: string): Promise<AgentSendResult> {
+    return deliverAgentApiText({ agent: this.account, target, text });
+  }
+
+  protected deliverMarkdown(target: WecomTarget, text: string): Promise<AgentSendResult> {
+    return deliverAgentApiMarkdown({ agent: this.account, target, text });
+  }
+
+  protected deliverMedia(
+    target: WecomTarget,
+    params: WecomAgentSendMediaParams,
+  ): Promise<AgentSendResult> {
+    return deliverAgentApiMedia({
+      agent: this.account,
       target,
       buffer: params.buffer,
       filename: params.filename,
       contentType: params.contentType,
       text: params.text,
     });
-    return { messageIds: result?.msgid ? [result.msgid] : [] };
   }
 }

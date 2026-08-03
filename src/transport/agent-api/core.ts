@@ -255,36 +255,69 @@ type AgentSendTarget = {
 };
 
 /**
- * 自建应用消息发送的公共骨架：取 token、按目标选接口、POST、校验响应。
+ * 发送时的身份来源。
+ *
+ * 普通自建应用与上下游企业的**接口完全相同**，差别只在拿哪个
+ * access_token（以及 body 里填哪个 agentid）。手册 93360「使用API接口」：
+ * ① 获取上级企业 access_token ② 获取下级企业 access_token
+ * ③ 用第②步的下级 token 调用各种 API 接口。
+ *
+ * 所以这里把取 token 做成注入项，而不是把整个骨架拄两份。
+ */
+export type AgentApiAuth = {
+  /** 日志与出口代理用的账号；上下游场景下是**下游**账号。 */
+  account: ResolvedAgentAccount;
+  /** message/send body 里的 agentid；appchat/send 不带这个字段。 */
+  agentId: number;
+  /** 取 access_token。上下游场景要先用上级 token 换下游 token。 */
+  getToken: () => Promise<string>;
+};
+
+/** 普通自建应用：用自己的 corpSecret 换 token。 */
+function selfAuth(agent: ResolvedAgentAccount): AgentApiAuth {
+  return {
+    account: agent,
+    agentId: requireAgentId(agent),
+    getToken: () => getAccessToken(agent),
+  };
+}
+
+/**
+ * 消息发送的公共骨架：取 token、按目标选接口、POST、校验响应。
  *
  * 各 msgtype 只在 body 里的那一小块有差异，由 content 提供；
  * 群会话（chatid）走 appchat/send，其余走 message/send。
  */
-async function dispatchAgentApi(params: {
-  target: AgentSendTarget;
+export async function dispatchAgentApi(params: {
+  auth: AgentApiAuth;
+  target: Omit<AgentSendTarget, "agent">;
   msgtype: string;
   /** msgtype 对应的消息体片段，例如 `{ content: text }`。 */
   content: unknown;
   /** 错误信息里的动作名，用于区分 text / markdown / image 等。 */
   errorLabel?: string;
+  /** 日志前缀，区分普通与上下游路径。 */
+  logScope?: string;
   /** 日志里的函数名；不传则不打日志（媒体路径历史上就没有）。 */
   logAs?: string;
   /** 追加到 request 日志末尾的细节，例如文本长度与预览。 */
   logDetail?: string;
 }): Promise<AgentSendResult> {
-  const { agent, toUser, toParty, toTag, chatId } = params.target;
+  const { account, agentId, getToken } = params.auth;
+  const { toUser, toParty, toTag, chatId } = params.target;
   const label = params.errorLabel ? `${params.errorLabel} ` : "";
+  const scope = params.logScope ?? "wecom-agent-api";
   const targetDesc = `toUser=${toUser ?? ""} toParty=${toParty ?? ""} toTag=${toTag ?? ""} chatId=${chatId ?? ""}`;
-  const agentDesc = `account=${agent.accountId} agentId=${String(agent.agentId ?? "N/A")} corpId=${agent.corpId}`;
+  const agentDesc = `account=${account.accountId} agentId=${String(agentId)} corpId=${account.corpId}`;
 
   if (params.logAs) {
     console.log(
-      `[wecom-agent-api] ${params.logAs} request ${agentDesc} ${targetDesc}` +
+      `[${scope}] ${params.logAs} request ${agentDesc} ${targetDesc}` +
         (params.logDetail ? ` ${params.logDetail}` : ""),
     );
   }
 
-  const token = await getAccessToken(agent);
+  const token = await getToken();
 
   const useChat = Boolean(chatId);
   const url = `${
@@ -298,7 +331,7 @@ async function dispatchAgentApi(params: {
         toparty: toParty,
         totag: toTag,
         msgtype: params.msgtype,
-        agentid: requireAgentId(agent),
+        agentid: agentId,
         [params.msgtype]: params.content,
       };
 
@@ -309,13 +342,13 @@ async function dispatchAgentApi(params: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     },
-    { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
+    { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(account.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
   );
   const json = (await res.json()) as WecomSendResponse;
 
   if (params.logAs) {
     console.log(
-      `[wecom-agent-api] ${params.logAs} response ${agentDesc} ${targetDesc} ` +
+      `[${scope}] ${params.logAs} response ${agentDesc} ${targetDesc} ` +
         `errcode=${String(json?.errcode ?? "N/A")} errmsg=${json?.errmsg ?? ""} msgid=${json?.msgid ?? ""} ` +
         `invaliduser=${json?.invaliduser ?? ""} invalidparty=${json?.invalidparty ?? ""} ` +
         `invalidtag=${json?.invalidtag ?? ""} unlicenseduser=${json?.unlicenseduser ?? ""}`,
@@ -352,6 +385,7 @@ export async function sendText(params: {
   text: string;
 }): Promise<AgentSendResult> {
   return dispatchAgentApi({
+    auth: selfAuth(params.agent),
     target: params,
     msgtype: "text",
     content: { content: params.text },
@@ -373,6 +407,7 @@ export async function sendMarkdown(params: {
   text: string;
 }): Promise<AgentSendResult> {
   return dispatchAgentApi({
+    auth: selfAuth(params.agent),
     target: params,
     msgtype: "markdown",
     content: { content: params.text },
@@ -454,6 +489,7 @@ export async function sendMedia(params: {
 }): Promise<AgentSendResult> {
   const { mediaId, mediaType, title, description } = params;
   return dispatchAgentApi({
+    auth: selfAuth(params.agent),
     target: params,
     msgtype: mediaType,
     content:

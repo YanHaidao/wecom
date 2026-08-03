@@ -1,10 +1,10 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import { API_ENDPOINTS, LIMITS } from "../../types/constants.js";
 import {
+  dispatchAgentApi,
   downloadMedia as downloadLegacyMedia,
   getAccessToken as getLegacyAccessToken,
   getUpstreamAccessToken as getLegacyUpstreamAccessToken,
-  normalizeAgentSendResult,
   sendMarkdown as sendLegacyMarkdown,
   sendMedia as sendLegacyMedia,
   sendText as sendLegacyText,
@@ -132,10 +132,11 @@ type UpstreamTarget = {
 };
 
 /**
- * 上下游企业消息发送的公共骨架：取下游 token、按目标选接口、POST、校验响应。
+ * 上下游企业消息发送。
  *
- * 各 msgtype 只在 body 里的那一小块有差异，由 buildContent 提供；
- * 群会话（chatid）走 appchat/send，其余走 message/send。
+ * 与普通自建应用共用 core.ts 的 dispatchAgentApi——手册 93360「使用API接口」
+ * 说得很明确：上下游只需要换取下游企业的 access_token，然后用它调**同样的**
+ * API 接口。所以这里只提供 auth，骨架不重复一遍。
  */
 async function dispatchUpstreamAgentApi(params: {
   target: UpstreamTarget;
@@ -144,77 +145,31 @@ async function dispatchUpstreamAgentApi(params: {
   content: unknown;
   /** 错误信息里的动作名，用于区分 text / markdown / image 等。 */
   errorLabel?: string;
+  logAs?: string;
+  logDetail?: string;
 }): Promise<AgentSendResult> {
-  const { upstreamAgent, primaryAgent, toUser, toParty, toTag, chatId } = params.target;
-  const label = params.errorLabel ? `${params.errorLabel} ` : "";
+  const { upstreamAgent, primaryAgent, ...target } = params.target;
 
-  // 获取下游企业的 access_token
-  const token = await getUpstreamAgentApiAccessToken({
-    primaryAgent,
-    upstreamCorpId: upstreamAgent.corpId,
-    upstreamAgentId: upstreamAgent.agentId!,
+  return dispatchAgentApi({
+    auth: {
+      // 出口代理与日志都按下游账号算，token 也是下游企业的。
+      account: upstreamAgent,
+      agentId: upstreamAgent.agentId!,
+      getToken: () =>
+        getUpstreamAgentApiAccessToken({
+          primaryAgent,
+          upstreamCorpId: upstreamAgent.corpId,
+          upstreamAgentId: upstreamAgent.agentId!,
+        }),
+    },
+    target,
+    msgtype: params.msgtype,
+    content: params.content,
+    errorLabel: params.errorLabel,
+    logScope: "wecom-upstream-api",
+    logAs: params.logAs,
+    logDetail: params.logDetail,
   });
-
-  const useChat = Boolean(chatId);
-  const url = `${
-    useChat ? API_ENDPOINTS.SEND_APPCHAT : API_ENDPOINTS.SEND_MESSAGE
-  }?access_token=${encodeURIComponent(token)}`;
-
-  const body = useChat
-    ? { chatid: chatId, msgtype: params.msgtype, [params.msgtype]: params.content }
-    : {
-        touser: toUser,
-        toparty: toParty,
-        totag: toTag,
-        msgtype: params.msgtype,
-        agentid: upstreamAgent.agentId,
-        [params.msgtype]: params.content,
-      };
-
-  const { wecomFetch } = await import("../../http.js");
-  const { resolveWecomEgressProxyUrlFromNetwork } = await import("../../config/index.js");
-
-  const res = await wecomFetch(
-    url,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-    {
-      proxyUrl: resolveWecomEgressProxyUrlFromNetwork(upstreamAgent.network),
-      timeoutMs: LIMITS.REQUEST_TIMEOUT_MS,
-    },
-  );
-
-  const json = (await res.json()) as {
-    errcode?: number;
-    errmsg?: string;
-    invaliduser?: string;
-    invalidparty?: string;
-    invalidtag?: string;
-    unlicenseduser?: string;
-    msgid?: string;
-    response_code?: string;
-  };
-
-  if (json?.errcode !== 0) {
-    throw new Error(`send ${label}failed: ${json?.errcode} ${json?.errmsg}`);
-  }
-
-  // unlicenseduser 不在抓错条件里，理由见 core.ts 的 dispatchAgentApi。
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
-    const details = [
-      json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
-      json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
-      json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    throw new Error(`send ${label}partial failure: ${details}`);
-  }
-
-  return normalizeAgentSendResult(json);
 }
 
 /**
