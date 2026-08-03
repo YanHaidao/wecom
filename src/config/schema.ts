@@ -99,8 +99,3 @@ export interface WecomConfigInput {
   routing?: RoutingConfig;
   dynamicAgents?: DynamicAgentsConfig;
 }
-
-/**
- * @deprecated No longer a Zod schema. Kept as a type-only export for backward compatibility.
- */
-export const WecomConfigSchema = undefined;

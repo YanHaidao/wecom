@@ -1,4 +1,4 @@
-export { WecomConfigSchema, type WecomConfigInput } from "./schema.js";
+export { type WecomConfigInput } from "./schema.js";
 export {
   DEFAULT_ACCOUNT_ID,
   detectMode,
