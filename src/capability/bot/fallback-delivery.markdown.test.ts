@@ -84,7 +84,7 @@ describe("sendAgentDmText (bot timeout fallback)", () => {
     const line = "![alt-text-here](https://example.com/some/image/path.png)";
     const text = Array.from({ length: 35 }, () => line).join("\n");
     expect(text.length).toBeLessThan(2048);
-    expect(toWeComMarkdownV2(text).length).toBeGreaterThan(2048);
+    expect(toWeComMarkdownV2(text, { flavor: "app", maxLength: null }).length).toBeGreaterThan(2048);
 
     await sendAgentDmText({
       agent,

@@ -62,6 +62,12 @@ export function resolveWecomMarkdownFormat(
  * 顺序不能颠倒：`toWeComMarkdownV2` 不保证收缩文本（图片密集内容实测 +5%），
  * 先分片再转换会让超出上限的部分被截断。
  *
+ * `flavor: "app"`：这几条路径都走自建应用的 `message/send` / `appchat/send`，
+ * 它的 markdown 子集比群机器人的 markdown_v2 窄（没有斜体与列表）。
+ *
+ * `maxLength: null`：转换器默认会在 4096 字符处静默截断，而分片由下面的
+ * chunkTextToByteLimit 负责，这里必须关掉，否则长回复的尾巴根本到不了分片这步。
+ *
  * `maxBytes` 是 UTF-8 字节数，不是字符数——企微手册的限制都以字节计。
  * 断点仍由 chunkMarkdownText 选，否则 `**bold**` 或 `[text](url)`
  * 会被从中间劈开，两半都渲染不出来。
@@ -74,7 +80,7 @@ export function prepareWecomMarkdownChunks(
   maxBytes: number,
   batchChars?: number,
 ): string[] {
-  const converted = toWeComMarkdownV2(text);
+  const converted = toWeComMarkdownV2(text, { flavor: "app", maxLength: null });
   const batched = batchChars ? chunkMarkdownText(converted, batchChars) : [converted];
   return batched.flatMap((piece) => chunkTextToByteLimit(piece, maxBytes, chunkMarkdownText));
 }

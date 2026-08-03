@@ -121,7 +121,9 @@ describe("prepareWecomMarkdownChunks", () => {
   });
 
   it("returns a single chunk when the converted text fits", () => {
-    expect(prepareWecomMarkdownChunks("# hello", 2048)).toEqual([toWeComMarkdownV2("# hello")]);
+    expect(prepareWecomMarkdownChunks("# hello", 2048)).toEqual([
+      toWeComMarkdownV2("# hello", { flavor: "app", maxLength: null }),
+    ]);
   });
 
   it("treats the limit as bytes, so Chinese splits well before 2048 characters", () => {
@@ -139,7 +141,35 @@ describe("prepareWecomMarkdownChunks", () => {
   it("does not over-split ASCII that already fits in bytes", () => {
     // 密度为 1，2048 字节 = 2048 字符，不该有额外分片。
     const text = "a".repeat(2000);
-    expect(prepareWecomMarkdownChunks(text, 2048)).toEqual([toWeComMarkdownV2(text)]);
+    expect(prepareWecomMarkdownChunks(text, 2048)).toEqual([
+      toWeComMarkdownV2(text, { flavor: "app", maxLength: null }),
+    ]);
+  });
+
+  it("does not truncate at the converter's default 4096-character cap", () => {
+    // toWeComMarkdownV2 默认在 4096 字符处静默截断。分片由调用方负责，
+    // 所以这里必须关掉，否则长回复的尾巴根本到不了分片这步。
+    const lines = Array.from({ length: 400 }, (_, i) => `line ${i} padding text here`);
+    const text = lines.join("\n");
+    expect(text.length).toBeGreaterThan(4096);
+
+    const joined = prepareWecomMarkdownChunks(text, 2048).join("\n");
+
+    expect(joined).not.toContain("已截断");
+    expect(joined).toContain("line 399");
+  });
+
+  it("downgrades syntax the app markdown subset does not support", () => {
+    // 手册 90236 附录：自建应用 markdown 只有标题/加粗/链接/行内代码/引用/字体颜色。
+    // 斜体与列表标记留着会原样显示成字面量。
+    const chunks = prepareWecomMarkdownChunks("- 一项 *强调* 和 **加粗**", 2048);
+    const out = chunks.join("");
+
+    expect(out).toContain("• 一项");
+    expect(out).toContain("强调");
+    expect(out).not.toContain("*强调*");
+    // 加粗仍是 app 子集支持的语法，不能被误拆。
+    expect(out).toContain("**加粗**");
   });
 
   it("keeps emoji intact when the byte limit forces a split", () => {

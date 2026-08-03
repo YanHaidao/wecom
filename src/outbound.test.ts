@@ -355,7 +355,7 @@ describe("wecomOutbound", () => {
     const { toWeComMarkdownV2 } = await import("./wecom_msg_adapter/markdown_adapter.js");
     // Input fits in one chunk; the converted form does not.
     expect(text.length).toBeLessThan(2048);
-    expect(toWeComMarkdownV2(text).length).toBeGreaterThan(2048);
+    expect(toWeComMarkdownV2(text, { flavor: "app", maxLength: null }).length).toBeGreaterThan(2048);
 
     await wecomOutbound.sendText({ cfg, to: "user:zhangsan", text } as any);
 
