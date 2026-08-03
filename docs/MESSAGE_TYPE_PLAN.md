@@ -41,10 +41,26 @@ OpenClaw 的既有模型（`docs/concepts/markdown-formatting.md`）是：Agent 
 `prepareWecomMarkdownChunks()`（`src/config/markdown.ts`）先整体转换再分片：
 
 ```typescript
-chunkTextToByteLimit(toWeComMarkdownV2(text), maxBytes, chunkMarkdownText)
+chunkTextToByteLimit(
+  toWeComMarkdownV2(text, { flavor: "app", maxLength: null }),
+  maxBytes,
+  chunkMarkdownText,
+)
 ```
 
 顺序不能颠倒。`toWeComMarkdownV2` 不保证收缩文本——实测图片密集内容 1179 → 1239 字符（约 +5%），先分片再转换会让超出上限的部分被 `truncateSafely` 静默吃掉。
+
+两个参数都不能省：
+
+- `maxLength: null` —— 转换器默认在 **4096 字符**处截断并追加「（内容过长，已截断）」。分片由 `chunkTextToByteLimit` 负责，这里不关掉的话长回复的尾巴根本到不了分片这步，等于把想避免的截断换了个阈值重新引入一遍。
+- `flavor: "app"` —— 两套子集不一样，不能混用：
+
+| | 支持 | 不支持 |
+|---|---|---|
+| 自建应用 `markdown`（[手册 90236](https://developer.work.weixin.qq.com/document/path/90236) 附录） | 标题、加粗、链接、行内代码、引用、`<font color>` | 斜体、列表、表格、图片、分割线、代码块 |
+| 群机器人 `markdown_v2`（[手册 91770](https://developer.work.weixin.qq.com/document/path/91770)） | 标题、斜体/加粗、列表、引用、链接+图片、分割线、代码块、表格 | 字体颜色、`<@userid>` |
+
+`flavor: "app"` 额外把斜体降级成普通文本、把无序列表标记换成 `•`。Bot WS 路径仍用默认的 `v2`。
 
 断点仍交给 SDK 的 `chunkMarkdownText` 而非定长切分：定长会把 `**bold**`、`[text](url)` 从中间劈开，两半都渲染不出来。`chunkMarkdownText` 按行与代码围栏边界切，且每片重开围栏。
 
@@ -52,15 +68,15 @@ chunkTextToByteLimit(toWeComMarkdownV2(text), maxBytes, chunkMarkdownText)
 
 企微手册的长度限制**全部以字节计**，而 SDK 的 `chunkText` / `chunkMarkdownText` 按字符（UTF-16 code unit）切。纯中文每字符 3 字节，把字节上限当字符上限用会超出 3 倍，而企微对 text 是「超过将截断」——不报错，内容被静默吃掉。
 
-各路径的真实上限（`MESSAGE_BYTE_LIMITS`，`src/types/constants.ts`）：
-
 | 路径 | msgtype | 上限 | 出处 |
 |---|---|---|---|
 | `message/send` 自建应用 | text / markdown | 2048 字节 | [手册 90236](https://developer.work.weixin.qq.com/document/path/90236) |
-| `appchat/send` 群会话 | text | 2048 字节 | [手册 90248](https://developer.work.weixin.qq.com/document/path/90248) |
+| `appchat/send` 群会话 | text / markdown | 2048 字节 | [手册 90248](https://developer.work.weixin.qq.com/document/path/90248) |
 | 群机器人 webhook | text | 2048 字节 | [手册 91770](https://developer.work.weixin.qq.com/document/path/91770) |
 | 群机器人 webhook | markdown / markdown_v2 | 4096 字节 | 同上 |
 | 智能机器人 WS 流式 | `stream.content` | 20480 字节 | `@wecom/aibot-node-sdk` 的 `StreamReplyBody` |
+
+`MESSAGE_BYTE_LIMITS`（`src/types/constants.ts`）只收录代码实际用到的两个：`AGENT_MESSAGE`（2048）与 `BOT_WS_STREAM`（20480）。群机器人 webhook 的两个上限本仓库没有发送路径，不放常量。
 
 `chunkTextToByteLimit()`（`src/shared/byte-chunking.ts`）负责收敛：按该段文本的**实际字节密度**折算字符上限（不是固定除 3 或除 4——纯 ASCII 密度为 1，折算后等于字节上限本身，不会白白多切一刀），切完校验字节数，超了就按 0.8 收紧重试，最多 6 轮后按字节硬切。硬切用 `for...of` 遍历码点，emoji 的代理对不会被劈成半个字符。
 
