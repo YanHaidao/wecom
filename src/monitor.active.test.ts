@@ -34,6 +34,27 @@ function createMockRequest(bodyObj: any): IncomingMessage {
     return req;
 }
 
+/**
+ * Awaits a promise whose chain mixes fake-timer delays with real async IO
+ * (fs.readFile, module imports). Neither `await` alone nor a single
+ * `advanceTimersByTimeAsync` is enough: the real IO needs event-loop turns to
+ * progress, and each turn can schedule the *next* fake timer. So advance
+ * repeatedly until it settles, and fail loudly rather than hang if it never does.
+ */
+async function settleWithFakeTimers<T>(promise: Promise<T>, label: string): Promise<T> {
+    let settled = false;
+    const tracked = promise.finally(() => {
+        settled = true;
+    });
+    for (let step = 0; step < 50 && !settled; step += 1) {
+        await vi.advanceTimersByTimeAsync(1000);
+    }
+    if (!settled) {
+        throw new Error(`${label} did not settle after advancing 50s of fake time`);
+    }
+    return tracked;
+}
+
 function createMockResponse(): ServerResponse {
     const req = new IncomingMessage(new Socket());
     const res = new ServerResponse(req);
@@ -188,9 +209,12 @@ describe("Monitor Active Features", () => {
         const streamId = Buffer.alloc(16, 0x11).toString("hex");
 
         undiciFetch.mockResolvedValue(new Response("ok", { status: 200 }));
-        const sendPromise = sendActiveMessage(streamId, "Active Hello");
-        await vi.advanceTimersByTimeAsync(1100);
-        await sendPromise;
+        // useActiveReplyOnce waits 1s before invoking the callback, and fake timers
+        // are active, so awaiting directly would block with nobody moving the clock.
+        await settleWithFakeTimers(
+            sendActiveMessage(streamId, "Active Hello"),
+            "sendActiveMessage",
+        );
 
         expect(undiciFetch).toHaveBeenCalled();
         const [url, init] = undiciFetch.mock.calls.at(-1)! as [string, RequestInit];
@@ -229,8 +253,17 @@ describe("Monitor Active Features", () => {
 
         undiciFetch.mockResolvedValue(new Response("ok", { status: 200 }));
 
-        vi.useRealTimers();
-        await capturedDeliver!({ text: "here", mediaUrls: [tmp] } as any);
+        // Reads the temp file and pushes the prompt through useActiveReplyOnce's
+        // 1s delay, so it needs the clock advanced alongside the real fs IO.
+        try {
+            await settleWithFakeTimers(
+                capturedDeliver!({ text: "here", mediaUrls: [tmp] } as any),
+                "media fallback deliver",
+            );
+        } finally {
+            await fs.rm(tmp, { force: true });
+        }
+
         expect(uploadMedia).toHaveBeenCalled();
         expect(sendMedia).toHaveBeenCalledWith(
             expect.objectContaining({

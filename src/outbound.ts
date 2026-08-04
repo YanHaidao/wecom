@@ -3,6 +3,7 @@ import type { ResolvedAgentAccount } from "./types/account.js";
 import { WecomAgentDeliveryService } from "./capability/agent/index.js";
 import { WecomUpstreamAgentDeliveryService } from "./capability/agent/upstream-delivery-service.js";
 import {
+  resolveWecomMarkdownFormat,
   resolveWecomMergedMediaLocalRoots,
   resolveWecomMediaMaxBytes,
   resolveWecomAccount,
@@ -17,8 +18,10 @@ import {
 } from "./runtime.js";
 import { getPeerUpstreamCorpId } from "./context-store.js";
 import { resolveWecomSourceSnapshot } from "./runtime/source-registry.js";
+import { chunkTextToByteLimit } from "./shared/byte-chunking.js";
 import { resolveOutboundMediaAsset } from "./shared/media-asset.js";
 import { resolveScopedWecomTarget } from "./target.js";
+import { MESSAGE_BYTE_LIMITS } from "./types/constants.js";
 import { toWeComMarkdownV2 } from "./wecom_msg_adapter/markdown_adapter.js";
 import { parseUpstreamAgentSessionTarget, createUpstreamAgentConfig, resolveUpstreamCorpConfig } from "./upstream/index.js";
 
@@ -466,10 +469,18 @@ async function sendMediaViaBotWs(params: {
 export const wecomOutbound: ChannelOutboundAdapter = {
   deliveryMode: "direct",
   chunkerMode: "text",
-  textChunkLimit: 20480,
+  /**
+   * 这层是 core 的预分片，对所有传输共用，所以取最宽的那个上限
+   * （Bot WS 流式 20480 字节）；更窄的 Agent 2048 由各 delivery-service
+   * 自己再切一次。收到 2048 会让 WS 流式路径被无谓地多切。
+   */
+  textChunkLimit: MESSAGE_BYTE_LIMITS.BOT_WS_STREAM,
   chunker: (text: string, limit: number) => {
     try {
-      return getWecomRuntime().channel.text.chunkText(text, limit);
+      // limit 语义是字节，chunkText 按字符切，所以要过一遍字节收敛。
+      return chunkTextToByteLimit(text, limit, (value, charLimit) =>
+        getWecomRuntime().channel.text.chunkText(value, charLimit),
+      );
     } catch {
       return [text];
     }
@@ -529,6 +540,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     let sentViaBotWs = false;
     let agent: ReturnType<typeof resolveAgentConfigOrThrow> | null = null;
     let upstreamTarget: ReturnType<typeof resolveUpstreamTarget> | undefined;
+    let agentMessageIds: string[] = [];
 
     try {
       // 首先检查是否是上下游用户
@@ -551,13 +563,15 @@ export const wecomOutbound: ChannelOutboundAdapter = {
           upstreamTarget.upstreamAgent,
           upstreamTarget.primaryAgent,
         );
-        await deliveryService.sendText({
+        const deliveryResult = await deliveryService.sendText({
           to,
           text: outgoingText,
+          format: resolveWecomMarkdownFormat(cfg, upstreamTarget.upstreamAgent.accountId),
         });
+        agentMessageIds = deliveryResult.messageIds;
         return {
           channel: "wecom",
-          messageId: `upstream-agent-${Date.now()}`,
+          messageId: agentMessageIds[0] ?? `upstream-agent-${Date.now()}`,
           timestamp: Date.now(),
         };
       }
@@ -582,10 +596,12 @@ export const wecomOutbound: ChannelOutboundAdapter = {
           `[wecom-outbound] Sending text to target=${String(to ?? "")} (len=${outgoingText.length})`,
         );
         const deliveryService = new WecomAgentDeliveryService(agent);
-        await deliveryService.sendText({
+        const deliveryResult = await deliveryService.sendText({
           to,
           text: outgoingText,
+          format: resolveWecomMarkdownFormat(cfg, agent.accountId),
         });
+        agentMessageIds = deliveryResult.messageIds;
       } else {
         logOutboundDecision({
           phase: "sendText:path-bot-ws",
@@ -607,7 +623,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
 
     return {
       channel: "wecom",
-      messageId: `${sentViaBotWs ? "bot-ws" : "agent"}-${Date.now()}`,
+      messageId: sentViaBotWs ? `bot-ws-${Date.now()}` : (agentMessageIds[0] ?? `agent-${Date.now()}`),
       timestamp: Date.now(),
     };
   },
@@ -659,7 +675,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
         upstreamTarget.upstreamAgent,
         upstreamTarget.primaryAgent,
       );
-      await deliveryService.sendMedia({
+      const deliveryResult = await deliveryService.sendMedia({
         to,
         text,
         buffer,
@@ -668,7 +684,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
       });
       return {
         channel: "wecom",
-        messageId: `upstream-agent-media-${Date.now()}`,
+        messageId: deliveryResult.messageIds[0] ?? `upstream-agent-media-${Date.now()}`,
         timestamp: Date.now(),
       };
     }
@@ -724,7 +740,7 @@ export const wecomOutbound: ChannelOutboundAdapter = {
     );
 
     try {
-      await deliveryService.sendMedia({
+      const deliveryResult = await deliveryService.sendMedia({
         to,
         text,
         buffer,
@@ -732,15 +748,14 @@ export const wecomOutbound: ChannelOutboundAdapter = {
         contentType,
       });
       console.log(`[wecom-outbound] Successfully sent media to ${String(to ?? "")}`);
+      return {
+        channel: "wecom",
+        messageId: deliveryResult.messageIds[0] ?? `${botWs.attempted ? "agent-fallback-media" : "agent-media"}-${Date.now()}`,
+        timestamp: Date.now(),
+      };
     } catch (err) {
       console.error(`[wecom-outbound] Failed to send media to ${String(to ?? "")}:`, err);
       throw err;
     }
-
-    return {
-      channel: "wecom",
-      messageId: `${botWs.attempted ? "agent-fallback-media" : "agent-media"}-${Date.now()}`,
-      timestamp: Date.now(),
-    };
   },
 };

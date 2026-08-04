@@ -1,11 +1,14 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
-import { LIMITS } from "../../types/constants.js";
+import { API_ENDPOINTS, LIMITS } from "../../types/constants.js";
 import {
+  dispatchAgentApi,
   downloadMedia as downloadLegacyMedia,
   getAccessToken as getLegacyAccessToken,
   getUpstreamAccessToken as getLegacyUpstreamAccessToken,
+  sendMarkdown as sendLegacyMarkdown,
   sendMedia as sendLegacyMedia,
   sendText as sendLegacyText,
+  type AgentSendResult,
 } from "./core.js";
 
 export async function getAgentApiAccessToken(agent: ResolvedAgentAccount): Promise<string> {
@@ -27,8 +30,19 @@ export async function sendAgentApiText(params: {
   toTag?: string;
   chatId?: string;
   text: string;
-}): Promise<void> {
-  await sendLegacyText(params);
+}): Promise<AgentSendResult> {
+  return sendLegacyText(params);
+}
+
+export async function sendAgentApiMarkdown(params: {
+  agent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  return sendLegacyMarkdown(params);
 }
 
 export async function sendAgentApiMedia(params: {
@@ -41,8 +55,8 @@ export async function sendAgentApiMedia(params: {
   mediaType: "image" | "voice" | "video" | "file";
   title?: string;
   description?: string;
-}): Promise<void> {
-  await sendLegacyMedia(params);
+}): Promise<AgentSendResult> {
+  return sendLegacyMedia(params);
 }
 
 export async function downloadAgentApiMedia(params: {
@@ -66,7 +80,7 @@ export async function downloadUpstreamAgentApiMedia(params: {
     upstreamCorpId: upstreamAgent.corpId,
     upstreamAgentId: upstreamAgent.agentId!,
   });
-  const url = `https://qyapi.weixin.qq.com/cgi-bin/media/get?access_token=${encodeURIComponent(token)}&media_id=${encodeURIComponent(mediaId)}`;
+  const url = `${API_ENDPOINTS.DOWNLOAD_MEDIA}?access_token=${encodeURIComponent(token)}&media_id=${encodeURIComponent(mediaId)}`;
 
   const { wecomFetch, readResponseBodyAsBuffer } = await import("../../http.js");
   const { resolveWecomEgressProxyUrlFromNetwork } = await import("../../config/index.js");
@@ -108,6 +122,56 @@ export async function downloadUpstreamAgentApiMedia(params: {
   return { buffer, contentType, filename };
 }
 
+type UpstreamTarget = {
+  upstreamAgent: ResolvedAgentAccount;
+  primaryAgent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  chatId?: string;
+};
+
+/**
+ * 上下游企业消息发送。
+ *
+ * 与普通自建应用共用 core.ts 的 dispatchAgentApi——手册 93360「使用API接口」
+ * 说得很明确：上下游只需要换取下游企业的 access_token，然后用它调**同样的**
+ * API 接口。所以这里只提供 auth，骨架不重复一遍。
+ */
+async function dispatchUpstreamAgentApi(params: {
+  target: UpstreamTarget;
+  msgtype: string;
+  /** msgtype 对应的消息体片段，例如 `{ content: text }`。 */
+  content: unknown;
+  /** 错误信息里的动作名，用于区分 text / markdown / image 等。 */
+  errorLabel?: string;
+  logAs?: string;
+  logDetail?: string;
+}): Promise<AgentSendResult> {
+  const { upstreamAgent, primaryAgent, ...target } = params.target;
+
+  return dispatchAgentApi({
+    auth: {
+      // 出口代理与日志都按下游账号算，token 也是下游企业的。
+      account: upstreamAgent,
+      agentId: upstreamAgent.agentId!,
+      getToken: () =>
+        getUpstreamAgentApiAccessToken({
+          primaryAgent,
+          upstreamCorpId: upstreamAgent.corpId,
+          upstreamAgentId: upstreamAgent.agentId!,
+        }),
+    },
+    target,
+    msgtype: params.msgtype,
+    content: params.content,
+    errorLabel: params.errorLabel,
+    logScope: "wecom-upstream-api",
+    logAs: params.logAs,
+    logDetail: params.logDetail,
+  });
+}
+
 /**
  * 发送文本消息给上下游用户
  * 使用下游企业的 access_token 和 agentId
@@ -120,70 +184,30 @@ export async function sendUpstreamAgentApiText(params: {
   toTag?: string;
   chatId?: string;
   text: string;
-}): Promise<void> {
-  const { upstreamAgent, primaryAgent, toUser, toParty, toTag, chatId, text } = params;
-
-  // 获取下游企业的 access_token
-  const token = await getUpstreamAgentApiAccessToken({
-    primaryAgent,
-    upstreamCorpId: upstreamAgent.corpId,
-    upstreamAgentId: upstreamAgent.agentId!,
+}): Promise<AgentSendResult> {
+  return dispatchUpstreamAgentApi({
+    target: params,
+    msgtype: "text",
+    content: { content: params.text },
   });
+}
 
-  const useChat = Boolean(chatId);
-  const url = useChat
-    ? `https://qyapi.weixin.qq.com/cgi-bin/appchat/send?access_token=${encodeURIComponent(token)}`
-    : `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`;
-
-  const body = useChat
-    ? { chatid: chatId, msgtype: "text", text: { content: text } }
-    : {
-        touser: toUser,
-        toparty: toParty,
-        totag: toTag,
-        msgtype: "text",
-        agentid: upstreamAgent.agentId,
-        text: { content: text },
-      };
-
-  const { wecomFetch } = await import("../../http.js");
-  const { resolveWecomEgressProxyUrlFromNetwork } = await import("../../config/index.js");
-  
-  const res = await wecomFetch(
-    url,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-    {
-      proxyUrl: resolveWecomEgressProxyUrlFromNetwork(upstreamAgent.network),
-      timeoutMs: LIMITS.REQUEST_TIMEOUT_MS,
-    },
-  );
-  
-  const json = (await res.json()) as {
-    errcode?: number;
-    errmsg?: string;
-    invaliduser?: string;
-    invalidparty?: string;
-    invalidtag?: string;
-  };
-
-  if (json?.errcode !== 0) {
-    throw new Error(`send failed: ${json?.errcode} ${json?.errmsg}`);
-  }
-
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
-    const details = [
-      json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
-      json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
-      json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    throw new Error(`send partial failure: ${details}`);
-  }
+/** 同 sendUpstreamAgentApiText，msgtype 为 markdown。群会话同样支持。 */
+export async function sendUpstreamAgentApiMarkdown(params: {
+  upstreamAgent: ResolvedAgentAccount;
+  primaryAgent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  return dispatchUpstreamAgentApi({
+    target: params,
+    msgtype: "markdown",
+    content: { content: params.text },
+    errorLabel: "markdown",
+  });
 }
 
 /**
@@ -201,77 +225,21 @@ export async function sendUpstreamAgentApiMedia(params: {
   mediaType: "image" | "voice" | "video" | "file";
   title?: string;
   description?: string;
-}): Promise<void> {
-  const { upstreamAgent, primaryAgent, toUser, toParty, toTag, chatId, mediaId, mediaType, title, description } = params;
-  
-  // 获取下游企业的 access_token
-  const token = await getUpstreamAgentApiAccessToken({
-    primaryAgent,
-    upstreamCorpId: upstreamAgent.corpId,
-    upstreamAgentId: upstreamAgent.agentId!,
-  });
+}): Promise<AgentSendResult> {
+  const { upstreamAgent, toUser, mediaId, mediaType, title, description } = params;
 
   console.log(
     `[wecom-upstream-api] sendMedia corpId=${upstreamAgent.corpId} agentId=${upstreamAgent.agentId} ` +
       `toUser=${toUser ?? ""} mediaType=${mediaType}`,
   );
 
-  const useChat = Boolean(chatId);
-  const url = useChat
-    ? `https://qyapi.weixin.qq.com/cgi-bin/appchat/send?access_token=${encodeURIComponent(token)}`
-    : `https://qyapi.weixin.qq.com/cgi-bin/message/send?access_token=${encodeURIComponent(token)}`;
-
-  const mediaPayload = mediaType === "video" 
-    ? { media_id: mediaId, title: title ?? "Video", description: description ?? "" } 
-    : { media_id: mediaId };
-    
-  const body = useChat
-    ? { chatid: chatId, msgtype: mediaType, [mediaType]: mediaPayload }
-    : {
-        touser: toUser,
-        toparty: toParty,
-        totag: toTag,
-        msgtype: mediaType,
-        agentid: upstreamAgent.agentId,
-        [mediaType]: mediaPayload,
-      };
-
-  const { wecomFetch } = await import("../../http.js");
-  const { resolveWecomEgressProxyUrlFromNetwork } = await import("../../config/index.js");
-  
-  const res = await wecomFetch(
-    url,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-    {
-      proxyUrl: resolveWecomEgressProxyUrlFromNetwork(upstreamAgent.network),
-      timeoutMs: LIMITS.REQUEST_TIMEOUT_MS,
-    },
-  );
-  
-  const json = (await res.json()) as {
-    errcode?: number;
-    errmsg?: string;
-    invaliduser?: string;
-    invalidparty?: string;
-    invalidtag?: string;
-  };
-
-  if (json?.errcode !== 0) {
-    throw new Error(`send ${mediaType} failed: ${json?.errcode} ${json?.errmsg}`);
-  }
-
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
-    const details = [
-      json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
-      json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
-      json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    throw new Error(`send ${mediaType} partial failure: ${details}`);
-  }
+  return dispatchUpstreamAgentApi({
+    target: params,
+    msgtype: mediaType,
+    content:
+      mediaType === "video"
+        ? { media_id: mediaId, title: title ?? "Video", description: description ?? "" }
+        : { media_id: mediaId },
+    errorLabel: mediaType,
+  });
 }

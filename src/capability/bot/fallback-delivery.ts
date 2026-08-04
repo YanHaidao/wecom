@@ -1,11 +1,23 @@
 import type { OpenClawConfig, PluginRuntime } from "openclaw/plugin-sdk";
 
-import { resolveWecomAccount } from "../../config/index.js";
+import {
+  prepareWecomMarkdownChunks,
+  prepareWecomTextChunks,
+  resolveWecomAccount,
+  resolveWecomMarkdownFormat,
+} from "../../config/index.js";
+import { WECOM_TEXT_CHUNK_BYTE_LIMIT } from "../agent/delivery-service.js";
+import { createSendPacer } from "../../shared/send-pacing.js";
 import { wecomFetch } from "../../http.js";
 import { LIMITS } from "../../monitor/state.js";
 import type { StreamState } from "../../types/legacy-stream.js";
 import type { ResolvedAgentAccount } from "../../types/index.js";
-import { sendMedia as sendAgentMedia, sendText as sendAgentText, uploadMedia } from "../../transport/agent-api/core.js";
+import {
+  sendMarkdown as sendAgentMarkdown,
+  sendMedia as sendAgentMedia,
+  sendText as sendAgentText,
+  uploadMedia,
+} from "../../transport/agent-api/core.js";
 import { buildStreamReplyFromState } from "../../transport/bot-webhook/protocol.js";
 import { useActiveReplyOnce } from "../../transport/bot-webhook/active-reply.js";
 import { guessContentTypeFromPath } from "../../transport/bot-webhook/inbound-normalizer.js";
@@ -95,12 +107,26 @@ export async function sendAgentDmText(params: {
   userId: string;
   text: string;
   core: PluginRuntime;
+  cfg: OpenClawConfig;
 }): Promise<void> {
-  const chunks = params.core.channel.text.chunkText(params.text, 2048);
+  // Bot 超时兜底的 Agent 私信同样不经过 wecomOutbound，所以在这里解析账号配置。
+  const asMarkdown =
+    resolveWecomMarkdownFormat(params.cfg, params.agent.accountId) === "markdown";
+  // 这条兜底路径走的是 Agent message/send（不是群机器人 webhook），
+  // 所以上限是 2048 字节。
+  const chunks = asMarkdown
+    ? prepareWecomMarkdownChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT)
+    : prepareWecomTextChunks(params.text, WECOM_TEXT_CHUNK_BYTE_LIMIT, (value, charLimit) =>
+        params.core.channel.text.chunkText(value, charLimit),
+      );
+  const send = asMarkdown ? sendAgentMarkdown : sendAgentText;
+  // 隔开相邻两片，理由见 shared/send-pacing.ts。
+  const pace = createSendPacer();
   for (const chunk of chunks) {
     const trimmed = chunk.trim();
     if (!trimmed) continue;
-    await sendAgentText({ agent: params.agent, toUser: params.userId, text: trimmed });
+    await pace();
+    await send({ agent: params.agent, toUser: params.userId, text: trimmed });
   }
 }
 

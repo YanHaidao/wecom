@@ -67,7 +67,13 @@ export async function finalizeBotStream(params: {
       if (dmText) {
         try {
           logVerbose(target, `fallback(timeout): 开始通过 Agent 私信发送剩余内容 user=${finishedState.userId} len=${dmText.length}`);
-          await sendAgentDmText({ agent: agentCfg, userId: finishedState.userId, text: dmText, core });
+          await sendAgentDmText({
+            agent: agentCfg,
+            userId: finishedState.userId,
+            text: dmText,
+            core,
+            cfg: config,
+          });
           logVerbose(target, `fallback(timeout): Agent 私信发送完成 user=${finishedState.userId}`);
         } catch (err) {
           target.runtime.error?.(`wecom agent dm text failed (timeout): ${String(err)}`);

@@ -178,7 +178,7 @@ export async function getUpstreamAccessToken(params: {
       const primaryToken = await getAccessToken(primaryAgent);
 
       // 2. 调用 corpgroup/corp/gettoken 获取下游企业的 access_token
-      const url = `https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/gettoken?access_token=${encodeURIComponent(primaryToken)}`;
+      const url = `${API_ENDPOINTS.GET_UPSTREAM_TOKEN}?access_token=${encodeURIComponent(primaryToken)}`;
       
       const requestBody = {
         corpid: upstreamCorpId,
@@ -221,36 +221,118 @@ export async function getUpstreamAccessToken(params: {
   return cache.refreshPromise;
 }
 
-export async function sendText(params: {
+/**
+ * 发送成功后唯一有价值的返回值。
+ *
+ * invaliduser / unlicenseduser 这类部分失败字段不在这里：它们出现即抛错，
+ * 走到返回值的结果不可能带上它们。
+ */
+export type AgentSendResult = {
+  msgid?: string;
+};
+
+/** 企微发送类接口的公共响应字段。 */
+type WecomSendResponse = {
+  errcode?: number;
+  errmsg?: string;
+  invaliduser?: string;
+  invalidparty?: string;
+  invalidtag?: string;
+  unlicenseduser?: string;
+  msgid?: string;
+};
+
+export function normalizeAgentSendResult(json: WecomSendResponse): AgentSendResult {
+  return { msgid: json.msgid };
+}
+
+type AgentSendTarget = {
   agent: ResolvedAgentAccount;
   toUser?: string;
   toParty?: string;
   toTag?: string;
   chatId?: string;
-  text: string;
-}): Promise<void> {
-  const { agent, toUser, toParty, toTag, chatId, text } = params;
-  console.log(
-    `[wecom-agent-api] sendText request account=${agent.accountId} agentId=${String(agent.agentId ?? "N/A")} corpId=${agent.corpId} ` +
-      `toUser=${toUser ?? ""} toParty=${toParty ?? ""} toTag=${toTag ?? ""} chatId=${chatId ?? ""} ` +
-      `textLen=${text.length} textPreview=${JSON.stringify(truncateForLog(text))}`,
-  );
-  const token = await getAccessToken(agent);
+};
+
+/**
+ * 发送时的身份来源。
+ *
+ * 普通自建应用与上下游企业的**接口完全相同**，差别只在拿哪个
+ * access_token（以及 body 里填哪个 agentid）。手册 93360「使用API接口」：
+ * ① 获取上级企业 access_token ② 获取下级企业 access_token
+ * ③ 用第②步的下级 token 调用各种 API 接口。
+ *
+ * 所以这里把取 token 做成注入项，而不是把整个骨架拄两份。
+ */
+export type AgentApiAuth = {
+  /** 日志与出口代理用的账号；上下游场景下是**下游**账号。 */
+  account: ResolvedAgentAccount;
+  /** message/send body 里的 agentid；appchat/send 不带这个字段。 */
+  agentId: number;
+  /** 取 access_token。上下游场景要先用上级 token 换下游 token。 */
+  getToken: () => Promise<string>;
+};
+
+/** 普通自建应用：用自己的 corpSecret 换 token。 */
+function selfAuth(agent: ResolvedAgentAccount): AgentApiAuth {
+  return {
+    account: agent,
+    agentId: requireAgentId(agent),
+    getToken: () => getAccessToken(agent),
+  };
+}
+
+/**
+ * 消息发送的公共骨架：取 token、按目标选接口、POST、校验响应。
+ *
+ * 各 msgtype 只在 body 里的那一小块有差异，由 content 提供；
+ * 群会话（chatid）走 appchat/send，其余走 message/send。
+ */
+export async function dispatchAgentApi(params: {
+  auth: AgentApiAuth;
+  target: Omit<AgentSendTarget, "agent">;
+  msgtype: string;
+  /** msgtype 对应的消息体片段，例如 `{ content: text }`。 */
+  content: unknown;
+  /** 错误信息里的动作名，用于区分 text / markdown / image 等。 */
+  errorLabel?: string;
+  /** 日志前缀，区分普通与上下游路径。 */
+  logScope?: string;
+  /** 日志里的函数名；不传则不打日志（媒体路径历史上就没有）。 */
+  logAs?: string;
+  /** 追加到 request 日志末尾的细节，例如文本长度与预览。 */
+  logDetail?: string;
+}): Promise<AgentSendResult> {
+  const { account, agentId, getToken } = params.auth;
+  const { toUser, toParty, toTag, chatId } = params.target;
+  const label = params.errorLabel ? `${params.errorLabel} ` : "";
+  const scope = params.logScope ?? "wecom-agent-api";
+  const targetDesc = `toUser=${toUser ?? ""} toParty=${toParty ?? ""} toTag=${toTag ?? ""} chatId=${chatId ?? ""}`;
+  const agentDesc = `account=${account.accountId} agentId=${String(agentId)} corpId=${account.corpId}`;
+
+  if (params.logAs) {
+    console.log(
+      `[${scope}] ${params.logAs} request ${agentDesc} ${targetDesc}` +
+        (params.logDetail ? ` ${params.logDetail}` : ""),
+    );
+  }
+
+  const token = await getToken();
 
   const useChat = Boolean(chatId);
-  const url = useChat
-    ? `${API_ENDPOINTS.SEND_APPCHAT}?access_token=${encodeURIComponent(token)}`
-    : `${API_ENDPOINTS.SEND_MESSAGE}?access_token=${encodeURIComponent(token)}`;
+  const url = `${
+    useChat ? API_ENDPOINTS.SEND_APPCHAT : API_ENDPOINTS.SEND_MESSAGE
+  }?access_token=${encodeURIComponent(token)}`;
 
   const body = useChat
-    ? { chatid: chatId, msgtype: "text", text: { content: text } }
+    ? { chatid: chatId, msgtype: params.msgtype, [params.msgtype]: params.content }
     : {
         touser: toUser,
         toparty: toParty,
         totag: toTag,
-        msgtype: "text",
-        agentid: requireAgentId(agent),
-        text: { content: text },
+        msgtype: params.msgtype,
+        agentid: agentId,
+        [params.msgtype]: params.content,
       };
 
   const res = await wecomFetch(
@@ -260,27 +342,26 @@ export async function sendText(params: {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     },
-    { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
+    { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(account.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
   );
-  const json = (await res.json()) as {
-    errcode?: number;
-    errmsg?: string;
-    invaliduser?: string;
-    invalidparty?: string;
-    invalidtag?: string;
-  };
+  const json = (await res.json()) as WecomSendResponse;
 
-  console.log(
-    `[wecom-agent-api] sendText response account=${agent.accountId} agentId=${String(agent.agentId ?? "N/A")} corpId=${agent.corpId} ` +
-      `toUser=${toUser ?? ""} toParty=${toParty ?? ""} toTag=${toTag ?? ""} chatId=${chatId ?? ""} ` +
-      `errcode=${String(json?.errcode ?? "N/A")} errmsg=${json?.errmsg ?? ""} ` +
-      `invaliduser=${json?.invaliduser ?? ""} invalidparty=${json?.invalidparty ?? ""} invalidtag=${json?.invalidtag ?? ""}`,
-  );
-
-  if (json?.errcode !== 0) {
-    throw new Error(`send failed: ${json?.errcode} ${json?.errmsg}`);
+  if (params.logAs) {
+    console.log(
+      `[${scope}] ${params.logAs} response ${agentDesc} ${targetDesc} ` +
+        `errcode=${String(json?.errcode ?? "N/A")} errmsg=${json?.errmsg ?? ""} msgid=${json?.msgid ?? ""} ` +
+        `invaliduser=${json?.invaliduser ?? ""} invalidparty=${json?.invalidparty ?? ""} ` +
+        `invalidtag=${json?.invalidtag ?? ""} unlicenseduser=${json?.unlicenseduser ?? ""}`,
+    );
   }
 
+  if (json?.errcode !== 0) {
+    throw new Error(`send ${label}failed: ${json?.errcode} ${json?.errmsg}`);
+  }
+
+  // unlicenseduser 不在抓错条件里：手册 90236 明确说它伴随 errcode=0 返回，
+  // 且消息已经投递给了其余收件人（全员失败才是 81013）。当成失败抛出会
+  // 让上层重试并重复投递，只需要上面那行日志能查到就够了。
   if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
     const details = [
       json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
@@ -289,8 +370,51 @@ export async function sendText(params: {
     ]
       .filter(Boolean)
       .join(", ");
-    throw new Error(`send partial failure: ${details}`);
+    throw new Error(`send ${label}partial failure: ${details}`);
   }
+
+  return normalizeAgentSendResult(json);
+}
+
+export async function sendText(params: {
+  agent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  return dispatchAgentApi({
+    auth: selfAuth(params.agent),
+    target: params,
+    msgtype: "text",
+    content: { content: params.text },
+    logAs: "sendText",
+    logDetail: `textLen=${params.text.length} textPreview=${JSON.stringify(truncateForLog(params.text))}`,
+  });
+}
+
+/**
+ * msgtype 为 markdown。群会话（chatId）同样支持：手册 90248 的
+ * appchat/send 有 markdown 消息章节（chatid + markdown.content，2048 字节）。
+ */
+export async function sendMarkdown(params: {
+  agent: ResolvedAgentAccount;
+  toUser?: string;
+  toParty?: string;
+  toTag?: string;
+  chatId?: string;
+  text: string;
+}): Promise<AgentSendResult> {
+  return dispatchAgentApi({
+    auth: selfAuth(params.agent),
+    target: params,
+    msgtype: "markdown",
+    content: { content: params.text },
+    errorLabel: "markdown",
+    logAs: "sendMarkdown",
+    logDetail: `textLen=${params.text.length} textPreview=${JSON.stringify(truncateForLog(params.text))}`,
+  });
 }
 
 export async function uploadMedia(params: {
@@ -362,58 +486,18 @@ export async function sendMedia(params: {
   mediaType: "image" | "voice" | "video" | "file";
   title?: string;
   description?: string;
-}): Promise<void> {
-  const { agent, toUser, toParty, toTag, chatId, mediaId, mediaType, title, description } = params;
-  const token = await getAccessToken(agent);
-
-  const useChat = Boolean(chatId);
-  const url = useChat
-    ? `${API_ENDPOINTS.SEND_APPCHAT}?access_token=${encodeURIComponent(token)}`
-    : `${API_ENDPOINTS.SEND_MESSAGE}?access_token=${encodeURIComponent(token)}`;
-
-  const mediaPayload = mediaType === "video" ? { media_id: mediaId, title: title ?? "Video", description: description ?? "" } : { media_id: mediaId };
-  const body = useChat
-    ? { chatid: chatId, msgtype: mediaType, [mediaType]: mediaPayload }
-    : {
-        touser: toUser,
-        toparty: toParty,
-        totag: toTag,
-        msgtype: mediaType,
-        agentid: requireAgentId(agent),
-        [mediaType]: mediaPayload,
-      };
-
-  const res = await wecomFetch(
-    url,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
-    },
-    { proxyUrl: resolveWecomEgressProxyUrlFromNetwork(agent.network), timeoutMs: LIMITS.REQUEST_TIMEOUT_MS },
-  );
-  const json = (await res.json()) as {
-    errcode?: number;
-    errmsg?: string;
-    invaliduser?: string;
-    invalidparty?: string;
-    invalidtag?: string;
-  };
-
-  if (json?.errcode !== 0) {
-    throw new Error(`send ${mediaType} failed: ${json?.errcode} ${json?.errmsg}`);
-  }
-
-  if (json?.invaliduser || json?.invalidparty || json?.invalidtag) {
-    const details = [
-      json.invaliduser ? `invaliduser=${json.invaliduser}` : "",
-      json.invalidparty ? `invalidparty=${json.invalidparty}` : "",
-      json.invalidtag ? `invalidtag=${json.invalidtag}` : "",
-    ]
-      .filter(Boolean)
-      .join(", ");
-    throw new Error(`send ${mediaType} partial failure: ${details}`);
-  }
+}): Promise<AgentSendResult> {
+  const { mediaId, mediaType, title, description } = params;
+  return dispatchAgentApi({
+    auth: selfAuth(params.agent),
+    target: params,
+    msgtype: mediaType,
+    content:
+      mediaType === "video"
+        ? { media_id: mediaId, title: title ?? "Video", description: description ?? "" }
+        : { media_id: mediaId },
+    errorLabel: mediaType,
+  });
 }
 
 export async function downloadMedia(params: {

@@ -1,14 +1,23 @@
 import type { ResolvedAgentAccount } from "../../types/index.js";
 import type { WecomTarget } from "../../target.js";
-import { sendAgentApiMediaReply, sendAgentApiTextReply } from "./reply.js";
+import { sendAgentApiMarkdownReply, sendAgentApiMediaReply, sendAgentApiTextReply } from "./reply.js";
 import { uploadAgentApiMedia } from "./media-upload.js";
+import type { AgentSendResult } from "./core.js";
 
 export async function deliverAgentApiText(params: {
   agent: ResolvedAgentAccount;
   target: WecomTarget;
   text: string;
-}): Promise<void> {
-  await sendAgentApiTextReply(params);
+}): Promise<AgentSendResult> {
+  return sendAgentApiTextReply(params);
+}
+
+export async function deliverAgentApiMarkdown(params: {
+  agent: ResolvedAgentAccount;
+  target: WecomTarget;
+  text: string;
+}): Promise<AgentSendResult> {
+  return sendAgentApiMarkdownReply(params);
 }
 
 export async function deliverAgentApiMedia(params: {
@@ -18,7 +27,7 @@ export async function deliverAgentApiMedia(params: {
   filename: string;
   contentType: string;
   text?: string;
-}): Promise<void> {
+}): Promise<AgentSendResult> {
   let mediaType: "image" | "voice" | "video" | "file" = "file";
   if (params.contentType.startsWith("image/")) mediaType = "image";
   else if (params.contentType.startsWith("audio/")) mediaType = "voice";
@@ -30,7 +39,7 @@ export async function deliverAgentApiMedia(params: {
     buffer: params.buffer,
     filename: params.filename,
   });
-  await sendAgentApiMediaReply({
+  return sendAgentApiMediaReply({
     agent: params.agent,
     target: params.target,
     mediaId,
