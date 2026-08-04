@@ -16,7 +16,7 @@ import type {
 export const DEFAULT_ACCOUNT_ID = "default";
 
 export type WecomAccountConflict = {
-  type: "duplicate_bot_id" | "duplicate_agent_id";
+  type: "duplicate_bot_id" | "duplicate_bot_token" | "duplicate_bot_aibotid" | "duplicate_agent_id";
   accountId: string;
   ownerAccountId: string;
   message: string;
@@ -35,7 +35,9 @@ function resolveBotAccount(
 ): ResolvedBotAccount {
   const primaryTransport = config.primaryTransport ?? (config.ws ? "ws" : "webhook");
   const wsConfigured = Boolean(config.ws?.botId && config.ws?.secret);
-  const webhookConfigured = Boolean(config.webhook?.token && config.webhook?.encodingAESKey);
+  const webhookToken = config.webhook?.token || config.token || "";
+  const webhookAes = config.webhook?.encodingAESKey || config.encodingAESKey || "";
+  const webhookConfigured = Boolean(webhookToken && webhookAes);
   const configured = primaryTransport === "ws" ? wsConfigured : webhookConfigured;
   return {
     accountId,
@@ -51,15 +53,15 @@ function resolveBotAccount(
           secret: config.ws.secret,
         }
       : undefined,
-    webhook: config.webhook
+    webhook: webhookConfigured
       ? {
-          token: config.webhook.token,
-          encodingAESKey: config.webhook.encodingAESKey,
-          receiveId: config.webhook.receiveId?.trim() ?? "",
+          token: webhookToken,
+          encodingAESKey: webhookAes,
+          receiveId: config.webhook?.receiveId?.trim() ?? "",
         }
       : undefined,
-    token: config.webhook?.token ?? "",
-    encodingAESKey: config.webhook?.encodingAESKey ?? "",
+    token: webhookToken,
+    encodingAESKey: webhookAes,
     receiveId: config.webhook?.receiveId?.trim() ?? "",
     botId: config.ws?.botId ?? "",
     secret: config.ws?.secret ?? "",
@@ -174,6 +176,8 @@ function collectWecomAccountConflicts(cfg: OpenClawConfig): Map<string, WecomAcc
   const conflicts = new Map<string, WecomAccountConflict>();
   const botOwners = new Map<string, string>();
   const agentOwners = new Map<string, string>();
+  const botTokenOwners = new Map<string, string>();
+  const aibotidOwners = new Map<string, string>();
 
   for (const accountId of Object.keys(resolved.accounts).sort((a, b) => a.localeCompare(b))) {
     const account = resolved.accounts[accountId];
@@ -197,6 +201,37 @@ function collectWecomAccountConflicts(cfg: OpenClawConfig): Map<string, WecomAcc
       }
     }
 
+    const botToken = account.bot?.token?.trim();
+    if (botToken) {
+      const key = normalizeKey(botToken);
+      const owner = botTokenOwners.get(key);
+      if (owner && owner !== accountId) {
+        conflicts.set(accountId, {
+          type: "duplicate_bot_token",
+          accountId,
+          ownerAccountId: owner,
+          message: `Duplicate WeCom bot token: account "${accountId}" shares bot token with account "${owner}". Keep one owner account per bot token.`,
+        });
+      } else {
+        botTokenOwners.set(key, accountId);
+      }
+    }
+
+    const aibotid = account.bot?.config?.aibotid?.trim();
+    if (aibotid) {
+      const key = normalizeKey(aibotid);
+      const owner = aibotidOwners.get(key);
+      if (owner && owner !== accountId) {
+        conflicts.set(accountId, {
+          type: "duplicate_bot_aibotid",
+          accountId,
+          ownerAccountId: owner,
+          message: `Duplicate WeCom bot aibotid: account "${accountId}" shares aibotid with account "${owner}". Keep one owner account per aibotid.`,
+        });
+      } else {
+        aibotidOwners.set(key, accountId);
+      }
+    }
     const corpId = account.agent?.corpId?.trim();
     const agentId = account.agent?.agentId;
     if (corpId && typeof agentId === "number") {
