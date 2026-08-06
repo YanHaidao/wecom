@@ -1,5 +1,7 @@
 # OpenClaw 企业微信（WeCom）Channel 插件
 
+> 📚 文档站入口（用于 GitHub Pages）：[`docs/index.md`](./docs/index.md)
+
 <p align="center">
   <img src="https://img.shields.io/badge/Original%20Project-YanHaidao-orange?style=for-the-badge&logo=github" alt="Original Project" />
   <img src="https://img.shields.io/badge/License-ISC-blue?style=for-the-badge" alt="License" />
