@@ -57,9 +57,9 @@ jobs:
         id: pack
         run: |
           npm pack --ignore-scripts --json > /tmp/npm-pack.json
-          cat /tmp/npm-pack.json
-          PACKAGE_FILE="$(node --input-type=module -e "import fs from 'node:fs'; const [result] = JSON.parse(fs.readFileSync('/tmp/npm-pack.json', 'utf8')); if (!result?.filename) process.exit(1); process.stdout.write(result.filename);")"
+          PACKAGE_FILE="$(node --input-type=module -e "import fs from 'node:fs'; const parsed = JSON.parse(fs.readFileSync('/tmp/npm-pack.json', 'utf8')); const result = Array.isArray(parsed) ? parsed[0] : Object.values(parsed)[0]; if (!result?.filename) process.exit(1); process.stdout.write(result.filename);")"
           test -f "$PACKAGE_FILE"
+          echo "Packed $PACKAGE_FILE"
           echo "package_file=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
 
       - name: Publish to npm
