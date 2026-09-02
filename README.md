@@ -31,7 +31,7 @@
 | Node.js | `>=22.22.3 <23`、`>=24.15.0 <25` 或 `>=25.9.0`；推荐 Node 24.15+ |
 | 插件包 | `@yanhaidao/wecom` |
 | 插件 ID | `wecom` |
-| 当前开发线 | [`v3.0.0`](changelog/v3.0.0.md)（开发中，尚未发布） |
+| 当前版本 | [`v3.0.0`](changelog/v3.0.0.md) |
 | 当前腾讯官方同步基线 | `WecomTeam/wecom-openclaw-plugin@2026.8.17` (`3b1cbe3e6643`) |
 
 如果你直接在 OpenClaw 源码仓库运行命令，请把本文的 `openclaw` 替换为：

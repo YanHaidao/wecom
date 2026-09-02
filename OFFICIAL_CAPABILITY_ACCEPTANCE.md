@@ -9,7 +9,7 @@
 - 官方参考仓库：`WecomTeam/wecom-openclaw-plugin`
 - 官方参考 commit：`3b1cbe3e664352821758d99ae5907f5620fce26e`
 - 官方参考版本：`2026.8.17`
-- 本地包：`@yanhaidao/wecom@2.7.260`
+- 本地包：`@yanhaidao/wecom@3.0.0`
 - OpenClaw：`2026.8.1`
 - Node.js：`24.15.0`
 
@@ -30,7 +30,7 @@
 | S08 | 单元测试 | PASS | Node 26.8.1：23 个测试文件、71 项测试全部通过；发布前使用 Node 24.15.0 复跑当前测试集 |
 | S09 | TypeScript 构建 | PASS | Node 24.15.0：`npm run build` 无错误 |
 | S10 | 上游检查 | PASS | `official/main` 与记录基线 `3b1cbe3` 一致 |
-| S11 | npm 包内容 | PASS | tarball 含完整 dist、Skills、许可与基线；无贡献补丁、锁文件或测试源码 |
+| S11 | npm 包内容 | PASS | tarball 含完整 dist、99 个 Skill/参考文件、许可与基线；无贡献补丁、锁文件或测试源码 |
 | S12 | 隔离安装 | PASS | 清洁状态目录通过 `npm-pack:` 安装；依赖齐全，doctor 与 diagnose 均无诊断 |
 
 ## 真实 Channel 验收

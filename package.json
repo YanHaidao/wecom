@@ -1,6 +1,6 @@
 {
   "name": "@yanhaidao/wecom",
-  "version": "2.7.260",
+  "version": "3.0.0",
   "description": "OpenClaw 全功能企业微信插件，融合官方 Channel、wecom-cli、上下游企业隔离与高级业务 API",
   "type": "module",
   "main": "./dist/index.js",
