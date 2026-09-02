@@ -23,8 +23,25 @@ function summarizeHttpTarget(input: string | URL): string {
     const url = typeof input === "string" ? new URL(input) : input;
     return `${url.origin}${url.pathname}`;
   } catch {
-    return String(input);
+    return "<invalid-url>";
   }
+}
+
+function summarizeProxyTarget(proxyUrl: string): string {
+  if (!proxyUrl) return "none";
+  try {
+    return new URL(proxyUrl).origin;
+  } catch {
+    return "<configured>";
+  }
+}
+
+function summarizeErrorCause(cause: unknown): string {
+  if (!cause || typeof cause !== "object") return "unknown";
+  const record = cause as { name?: unknown; code?: unknown };
+  const name = typeof record.name === "string" && record.name ? record.name : "Error";
+  const code = typeof record.code === "string" && record.code ? `:${record.code}` : "";
+  return `${name}${code}`;
 }
 
 function mergeAbortSignal(params: {
@@ -66,6 +83,7 @@ export async function wecomFetch(input: string | URL, init?: RequestInit, opts?:
   const startedAt = Date.now();
   const method = (init?.method ?? "GET").toUpperCase();
   const target = summarizeHttpTarget(input);
+  const proxyTarget = summarizeProxyTarget(proxyUrl);
 
   const initSignal = init?.signal ?? undefined;
   const signal = mergeAbortSignal({ signal: opts?.signal ?? initSignal, timeoutMs: opts?.timeoutMs });
@@ -75,18 +93,18 @@ export async function wecomFetch(input: string | URL, init?: RequestInit, opts?:
     headers.set("User-Agent", "OpenClaw/2.0 (WeCom-Agent)");
   }
 
-  const nextInit: RequestInit & { dispatcher?: Dispatcher } = {
+  const nextInit = {
     ...(init ?? {}),
     ...(signal ? { signal } : {}),
     ...(dispatcher ? { dispatcher } : {}),
     headers,
-  };
+  } as Parameters<typeof undiciFetch>[1];
 
   try {
     console.log(
-      `[wecom-http] request method=${method} target=${target} proxy=${proxyUrl || "none"} timeoutMs=${String(opts?.timeoutMs ?? "none")}`,
+      `[wecom-http] request method=${method} target=${target} proxy=${proxyTarget} timeoutMs=${String(opts?.timeoutMs ?? "none")}`,
     );
-    const response = await undiciFetch(input, nextInit as Parameters<typeof undiciFetch>[1]) as unknown as Response;
+    const response = (await undiciFetch(input, nextInit)) as unknown as Response;
     console.log(
       `[wecom-http] response method=${method} target=${target} status=${response.status} durationMs=${Date.now() - startedAt}`,
     );
@@ -94,16 +112,16 @@ export async function wecomFetch(input: string | URL, init?: RequestInit, opts?:
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "TimeoutError") {
       console.error(
-        `[wecom-http] timeout method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyUrl || "none"}`,
+        `[wecom-http] timeout method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyTarget}`,
       );
     } else if (err instanceof Error && err.name === "TypeError" && err.message === "fetch failed") {
-      const cause = (err as any).cause;
+      const cause = err.cause;
       console.error(
-        `[wecom-http] fetch failed method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyUrl || "none"}${cause ? ` cause=${String(cause)}` : ""}`,
+        `[wecom-http] fetch failed method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyTarget} cause=${summarizeErrorCause(cause)}`,
       );
     } else if (err instanceof Error && err.name === "AbortError") {
       console.error(
-        `[wecom-http] aborted method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyUrl || "none"}`,
+        `[wecom-http] aborted method=${method} target=${target} durationMs=${Date.now() - startedAt} proxy=${proxyTarget}`,
       );
     }
     throw err;

@@ -1,71 +1,94 @@
 {
   "name": "@yanhaidao/wecom",
   "version": "2.7.260",
-  "description": "OpenClaw 企业微信（WeCom）插件，默认 Bot WebSocket，支持加密媒体解密、Agent 主动发消息与多账号接入",
+  "description": "OpenClaw 全功能企业微信插件，融合官方 Channel、wecom-cli、上下游企业隔离与高级业务 API",
+  "type": "module",
   "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "files": [
     "dist",
+    "skills",
     "index.ts",
     "openclaw.plugin.json",
     "README.md",
+    "OFFICIAL_PLUGIN_MIGRATION.md",
+    "OFFICIAL_CAPABILITY_ACCEPTANCE.md",
+    "UPSTREAM_BASELINE.json",
+    "THIRD_PARTY_NOTICES.md",
     "LICENSE"
   ],
   "scripts": {
+    "clean": "node -e \"require('node:fs').rmSync('./dist',{recursive:true,force:true})\"",
     "build": "tsc -p tsconfig.json",
+    "test": "vitest run --config vitest.standalone.config.ts",
+    "upstream:check": "node scripts/check-official-updates.mjs --fetch",
+    "release:verify": "node scripts/verify-release.mjs",
     "verify-dist": "node -e \"const fs=require('fs');const f='./dist/index.js';if(!fs.existsSync(f)){console.error('Missing compiled runtime output:',f);process.exit(1)}\"",
+    "prebuild": "npm run clean",
     "prepack": "npm run build && npm run verify-dist"
   },
+  "keywords": ["wecom", "openclaw", "wechat-work"],
   "license": "ISC",
-  "author": "YanHaidao (VX: YanHaidao)",
+  "author": "YanHaidao",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/YanHaidao/wecom.git"
   },
-  "type": "module",
   "publishConfig": {
     "access": "public"
   },
   "dependencies": {
-    "@wecom/aibot-node-sdk": "^1.0.0",
-    "fast-xml-parser": "5.3.4",
-    "undici": "^7.20.0"
+    "@wecom/aibot-node-sdk": "^1.0.6",
+    "@wecom/cli": "^1.0.0",
+    "fast-xml-parser": "^5.5.9",
+    "file-type": "^21.3.0",
+    "undici": "^7.29.0"
   },
   "devDependencies": {
-    "@types/node": "^22.22.0",
-    "openclaw": "^2026.7.1",
-    "typescript": "^5.9.3",
-    "vitest": "^2.1.8"
+    "@types/node": "26.2.0",
+    "openclaw": "^2026.8.1",
+    "typescript": "6.0.3",
+    "vitest": "4.1.11"
   },
   "peerDependencies": {
-    "openclaw": "^2026.7.0"
+    "openclaw": ">=2026.8.1"
+  },
+  "peerDependenciesMeta": {
+    "openclaw": {
+      "optional": true
+    }
   },
   "openclaw": {
-    "extensions": [
-      "./index.ts"
-    ],
-    "runtimeExtensions": [
-      "./dist/index.js"
-    ],
+    "extensions": ["./dist/index.js"],
+    "setupEntry": "./dist/setup-entry.js",
     "channel": {
       "id": "wecom",
-      "label": "WeCom (企业微信)",
-      "selectionLabel": "WeCom (企业微信)",
-      "detailLabel": "WeCom (企业微信)",
+      "label": "企业微信",
+      "selectionLabel": "企业微信 (YanHaidao 全功能版)",
       "docsPath": "/channels/wecom",
-      "docsLabel": "企业微信",
-      "blurb": "企业微信官方推荐三方插件，默认 Bot WS 配置简单，支持主动发消息与 Agent 全能力。",
-      "aliases": [
-        "wechatwork",
-        "wework",
-        "qywx",
-        "企微",
-        "企业微信"
-      ],
-      "order": 85
+      "docsLabel": "YanHaidao/wecom",
+      "blurb": "融合官方能力与企业增强功能的完整企业微信 Channel",
+      "order": 80,
+      "quickstartAllowFrom": true,
+      "setup": {
+        "fields": [
+          { "key": "connectionMode", "kind": "choice", "choices": ["websocket", "webhook"], "cli": { "flags": "--connection-mode <mode>", "description": "WeCom Bot connection mode" } },
+          { "key": "botId", "kind": "string", "sensitive": true, "cli": { "flags": "--bot-id <id>", "description": "WeCom Bot ID" } },
+          { "key": "secret", "kind": "string", "sensitive": true, "cli": { "flags": "--secret <secret>", "description": "WeCom Bot secret" } },
+          { "key": "token", "kind": "string", "sensitive": true, "cli": { "flags": "--token <token>", "description": "WeCom webhook token" } },
+          { "key": "encodingAesKey", "kind": "string", "sensitive": true, "cli": { "flags": "--encoding-aes-key <key>", "description": "WeCom webhook EncodingAESKey" } },
+          { "key": "receiveId", "kind": "string", "cli": { "flags": "--receive-id <id>", "description": "WeCom webhook receiver ID" } }
+        ]
+      }
     },
     "install": {
       "npmSpec": "@yanhaidao/wecom",
-      "localPath": "extensions/wecom",
       "defaultChoice": "npm"
     }
   }

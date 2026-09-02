@@ -1,60 +1,27 @@
-# WeCom 插件上下游企业配置指南
+# `upstreamCorps` 配置
 
-## 背景
+`upstreamCorps` 是 `@yanhaidao/wecom` Agent 配置的一部分，用于一个主企业代开发或管理多个下游企业的
+场景。实现已经融合进本插件的 Agent 回调、会话目标、token 交换和出站发送链路。
 
-企业微信的「上下游」功能允许企业与其经销商、供应商、合作伙伴便捷沟通、共享应用。
-
-## 问题
-
-- 上下游企业的 CorpID 与主企业不同
-- 上下游企业只能使用 Agent 渠道（没有 Bot 渠道）
-- 需要使用下游企业的 access_token 来发送消息
-
-## 解决方案
-
-修改后的 WeCom 插件支持通过配置 `upstreamCorps` 来发送消息给上下游用户。
-
-## 配置方法
-
-在 `openclaw.json` 中，为需要支持上下游的账号添加 `upstreamCorps` 配置：
+## 配置示例
 
 ```json
 {
   "channels": {
     "wecom": {
       "accounts": {
-        "<ACCOUNT_ID>": {
-          "enabled": true,
-          "name": "<ACCOUNT_NAME>",
+        "primary": {
           "agent": {
-            "corpId": "<PRIMARY_CORP_ID>",
-            "agentId": <PRIMARY_AGENT_ID>,
-            "agentSecret": "<PRIMARY_AGENT_SECRET>",
-            "token": "<PRIMARY_CALLBACK_TOKEN>",
-            "encodingAESKey": "<PRIMARY_ENCODING_AES_KEY>",
-            "welcomeText": "<WELCOME_TEXT>",
-            "dm": {
-              "policy": "open",
-              "allowFrom": []
-            },
+            "corpId": "ww-primary",
+            "corpSecret": "<PRIMARY_SECRET>",
+            "agentId": 1000002,
+            "token": "<CALLBACK_TOKEN>",
+            "encodingAESKey": "<CALLBACK_AES_KEY>",
             "upstreamCorps": {
-              "<UPSTREAM_CORP_KEY>": {
-                "corpId": "<UPSTREAM_CORP_ID>",
-                "agentId": <UPSTREAM_AGENT_ID>
+              "customer-a": {
+                "corpId": "ww-customer-a",
+                "agentId": 2000001
               }
-            }
-          },
-          "bot": {
-            "primaryTransport": "webhook",
-            "streamPlaceholderContent": "正在思考...",
-            "welcomeText": "<BOT_WELCOME_TEXT>",
-            "dm": {
-              "policy": "open",
-              "allowFrom": []
-            },
-            "webhook": {
-              "token": "<BOT_WEBHOOK_TOKEN>",
-              "encodingAESKey": "<BOT_WEBHOOK_ENCODING_AES_KEY>"
             }
           }
         }
@@ -64,107 +31,26 @@
 }
 ```
 
-占位符说明：
+对象键只是便于运维识别的标签。真正的入站身份匹配使用每项的 `corpId`，匹配时忽略大小写；
+`agentId` 必须能解析为正整数。
 
-1. `<ACCOUNT_ID>`: OpenClaw 中的 WeCom 账号 ID（如 `default`、`lab`）。
-2. `<PRIMARY_CORP_ID>` / `<PRIMARY_AGENT_ID>`: 上游（主）企业应用信息。
-3. `<UPSTREAM_CORP_ID>` / `<UPSTREAM_AGENT_ID>`: 下游企业应用信息（可由 95813 接口返回）。
-4. `<UPSTREAM_CORP_KEY>`: `upstreamCorps` 的配置键，建议与 `<UPSTREAM_CORP_ID>` 保持一致。
+## 路由语义
 
-## 配置说明
+1. 回调的 `ToUserName` 等于主企业 `corpId` 时走主企业路径。
+2. 等于某个 `upstreamCorps.*.corpId` 时，目标绑定当前 `accountId`、下游 `corpId` 和用户 ID。
+3. 回复前先使用主企业凭据取得 token，再调用 `corpgroup/corp/gettoken` 换取下游 token。
+4. 下游文本、媒体下载、媒体上传和发送都使用下游 token 与下游 `agentId`。
 
-### upstreamCorps 字段
+## 失败关闭
 
-- **key**: 下游企业标识（推荐直接使用下游 CorpID，例如 `<UPSTREAM_CORP_ID>`）
-- **value**: 该下游企业的 Agent 配置
-  - `corpId`: 下游企业的 CorpID
-  - `agentId`: 下游企业的 AgentID
+以下情况直接拒绝，不回退主企业或 Bot：
 
-## 获取下游企业配置信息
+- `ToUserName` 缺失或没有匹配项。
+- 多个映射包含相同的下游 `corpId`。
+- `corpId` 为空或 `agentId` 不是正整数。
+- 规范回复目标中的 `accountId` 与当前账号不同。
+- 下游 token 交换失败。
+- 下游群回调缺少可靠的群身份模型。
 
-1. **CorpID**: 从企业微信管理后台获取，或从消息回调中的 `ToUserName` 字段获取
-2. **AgentID**: 从企业微信管理后台 - 应用管理 中获取
-3. **AgentSecret**: 仅主企业应用需要配置（用于获取主企业 access_token）
-
-### 通过接口自动获取（推荐）
-
-你也可以通过企业微信官方接口「获取应用共享信息」批量拉取上下游企业的 `corpid` 与 `agentid`：
-
-- 文档: https://developer.work.weixin.qq.com/document/path/95813
-- 接口: `POST https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/list_app_share_info?access_token=ACCESS_TOKEN`
-
-请求体示例（上下游场景）：
-
-```json
-{
-  "agentid": <PRIMARY_AGENT_ID>,
-  "business_type": 1,
-  "limit": 100
-}
-```
-
-参数要点：
-
-1. `access_token` 使用上游企业应用的 access_token。
-2. `business_type` 传 `1` 表示上下游企业。
-3. `agentid` 传上游企业当前应用的 AgentID。
-4. 当企业较多时，用 `cursor` + `next_cursor` 分页拉取，直到 `ending=1`。
-
-返回字段映射到配置：
-
-1. `corp_list[].corpid` -> `upstreamCorps.<key>.corpId`
-2. `corp_list[].agentid` -> `upstreamCorps.<key>.agentId`
-
-示例返回（节选）：
-
-```json
-{
-  "errcode": 0,
-  "errmsg": "ok",
-  "ending": 0,
-  "next_cursor": "<NEXT_CURSOR>",
-  "corp_list": [
-    {
-      "corpid": "<UPSTREAM_CORP_ID>",
-      "corp_name": "<UPSTREAM_CORP_NAME>",
-      "agentid": <UPSTREAM_AGENT_ID>
-    }
-  ]
-}
-```
-
-可直接转换成：
-
-```json
-{
-  "upstreamCorps": {
-    "<UPSTREAM_CORP_KEY>": {
-      "corpId": "<UPSTREAM_CORP_ID>",
-      "agentId": <UPSTREAM_AGENT_ID>
-    }
-  }
-}
-```
-
-提示：如果某个下游企业未在 `corp_list` 中出现，通常是该企业还未确认应用共享或共享未生效。
-
-## 工作原理
-
-1. 当收到消息时，插件检测消息中的 `ToUserName`（CorpID）
-2. 如果 `ToUserName` 与主 CorpID 不同，则识别为上下游用户
-3. 回复时使用 `wecom-agent-upstream:{accountId}:{corpId}:{userId}` 格式的 target
-4. Outbound 模块解析该 target，使用对应的上下游 Agent 配置发送消息
-
-## 日志示例
-
-```
-[wecom-agent] detected upstream user: from=<UPSTREAM_USER_ID> toCorpId=<UPSTREAM_CORP_ID>
-[wecom-outbound] Sending text to upstream target=wecom-agent-upstream:<ACCOUNT_ID>:<UPSTREAM_CORP_ID>:<UPSTREAM_USER_ID> corpId=<UPSTREAM_CORP_ID>
-[wecom-outbound] Successfully sent upstream Agent text to wecom-agent-upstream:<ACCOUNT_ID>:<UPSTREAM_CORP_ID>:<UPSTREAM_USER_ID>
-```
-
-## 注意事项
-
-1. `upstreamCorps` 仅需配置下游 `corpId` 与 `agentId`，不需要下游 `agentSecret`
-2. 上下游企业需要在企业微信管理后台配置「可调用接口的应用」
-3. 上游企业需要将应用共享给下游企业
+运行 `openclaw wecom diagnose --json` 可静态检查重复、无效和跨账号配置。真实 token 交换、回调与
+媒体回环仍需按根目录 `OFFICIAL_CAPABILITY_ACCEPTANCE.md` 使用脱敏证据验收。

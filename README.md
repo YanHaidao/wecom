@@ -1,428 +1,493 @@
-# OpenClaw 企业微信（WeCom）Channel 插件
+# YanHaidao/wecom
 
 <p align="center">
   <img src="https://img.shields.io/badge/Original%20Project-YanHaidao-orange?style=for-the-badge&logo=github" alt="Original Project" />
   <img src="https://img.shields.io/badge/License-ISC-blue?style=for-the-badge" alt="License" />
 </p>
 
+面向 OpenClaw 2026.8.1 及更高兼容版本的全功能企业微信插件。
+
+本项目以腾讯企业微信团队维护的
+[`WecomTeam/wecom-openclaw-plugin`](https://github.com/WecomTeam/wecom-openclaw-plugin)
+为 Channel 主线，保留官方 Bot、Agent、`wecom-cli` 和 Skills 能力，并融合 YanHaidao 版本的
+多账号隔离、上下游企业路由、文档与日历增强工具、动态 Agent、诊断和隐私安全日志。
+
 > [!WARNING]
-> **原创声明**：本项目涉及的“多账号隔离与矩阵路由架构”、“Bot+Agent双模融合架构”、“长任务超时接力逻辑”及“全自动媒体流转接”等核心设计均为作者 **YanHaidao** 独立思考与实践的原创成果。
-> 欢迎技术交流与合规引用，但严禁任何不经授权的“功能像素级抄袭”或删除原作者署名的代码搬运行为。
+> **原创与归属声明**：本项目的“多账号隔离与矩阵路由架构”、“Bot + Agent 双模融合架构”、
+> “长任务超时接力逻辑”及“全自动媒体流转接”等设计与增强能力，是作者
+> **YanHaidao** 独立思考与实践的原创成果。欢迎依据 ISC 许可证进行技术交流、使用、修改与
+> 合规引用，但必须保留许可证要求的版权及许可声明；不得删除原作者署名或冒充原创。
+> 从腾讯官方主线迁入的代码不属于上述原创声明范围，其来源、基线与 MIT 许可归属见
+> [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。
 
-<p align="center">
-  <strong>🚀 企业级多模式 AI 助手接入方案（统一运行时架构）</strong>
-</p>
+> 本插件的 ID 是 `wecom`，会独占 OpenClaw 的 `wecom` Channel。不要同时启用
+> `wecom-openclaw-plugin`，否则会出现 Channel 所有权、Webhook 路由或消息目标冲突。
 
----
+## 兼容范围
 
-## 💡 核心价值：为什么团队会真正选择这个插件？
+| 组件 | 要求 |
+|---|---|
+| OpenClaw | `>= 2026.8.1` |
+| Node.js | `>=22.22.3 <23`、`>=24.15.0 <25` 或 `>=25.9.0`；推荐 Node 24.15+ |
+| 插件包 | `@yanhaidao/wecom` |
+| 插件 ID | `wecom` |
+| 当前开发线 | [`v3.0.0`](changelog/v3.0.0.md)（开发中，尚未发布） |
+| 当前腾讯官方同步基线 | `WecomTeam/wecom-openclaw-plugin@2026.8.17` (`3b1cbe3e6643`) |
 
-企业真正需要的，不是“把一个模型接进企业微信”，而是让企业微信变成一个**能长期工作的 AI 协作入口**。
-
-大多数团队最终只关心五件事：
-
-- 能不能先低门槛接起来，而不是先做一轮重部署
-- 多人同时使用时，会不会串上下文、串身份、串会话
-- 长任务会不会因为长连接窗口太短而白跑
-- 能不能既有实时对话体验，又能做正式推送和稳定投递
-- AI 能不能真正进入文档、日程、会议、待办、通讯录这些协作层，而不只是停留在聊天框
-
-常见方案通常会很快碰到边界：
-
-- **只用 Bot WS**：接得快、聊得顺，但会受到单连接、心跳保活、会话边界和组织级广播能力的限制
-- **只用 Agent**：能力强、治理清晰，但部署门槛更高，对话体验不如 Bot WS 丝滑
-- **只选单一路径**：团队最后往往被迫在“体验”和“能力”之间二选一
-
-本插件的价值，就在于把这些原本互相冲突的目标，尽量同时成立。
-
-### 您真正会得到什么？
-
-1. **多人共用一个入口，但上下文不会串**
-   - **问题本质**：企业里真正难的不是“接入一个机器人”，而是让几十上百个人同时使用时，仍然保持每个人的上下文隔离。
-   - **插件做法**：按 `(底层账号 + 部门/群组/人员)` 动态切分运行上下文和 Agent 实例。
-   - **用户收益**：同一个企业微信入口可以承接多人并发使用，而不会出现“张三的问题让李四接上回答”的串流灾难。
-
-2. **长任务不白跑，回复不轻易丢**
-   - **问题本质**：企业微信长连接的响应窗口很短，而推理模型的思考时间往往很长。
-   - **插件做法**：先保活，再流式推进；必要时走备用投递路径，把最终结果交付出去。
-   - **用户收益**：更敢把复杂任务、长文本分析、报告生成交给 AI，而不是每次都担心“算完了却发不回来”。
-
-3. **实时对话体验和正式投递能力，不用二选一**
-   - **问题本质**：实时聊天和组织级推送，往往不是同一条技术路径最擅长的事。
-   - **插件做法**：会话内实时交互、流式回复、异步追发优先走 `Bot WS`；组织级广播、冷启动触达、正式通知由 `Agent` 兜底。
-   - **用户收益**：日常使用时体验像聊天助手，正式落地时又有企业应用该有的稳定性和控制力。
-
-4. **AI 不只会聊天，还能进入企业微信协作层**
-   - **问题本质**：如果 AI 只能回消息，信息最终还是散落在聊天流里，业务并没有真正被推进。
-   - **插件做法**：把企业微信原生协作能力按两条能力平面接入 OpenClaw。
-   - **用户收益**：AI 不仅能回答问题，还能真正参与文档、日程、会议、待办和通讯录相关工作。
-
-5. **小团队能低门槛上手，大团队也能正式上线**
-   - **问题本质**：小团队怕折腾，大团队怕失控。
-   - **插件做法**：`Bot WS` 适合快速启用，`Agent` 适合正式治理，两者可以并存。
-   - **用户收益**：您不用在“今天先跑起来”和“将来能不能正规化”之间做破坏性迁移。
-
----
-
-## 📊 为什么不是只选 Bot，或者只选 Agent？
-
-从用户视角看，差别不在于协议名词，而在于**你要解决的是什么问题**。
-
-| 你真正关心的事 | 🤖 Bot 模式 (WebSocket) | 🧩 Agent 模式 (自建应用 API) | ✨ 本插件的做法 |
-|:---|:---|:---|:---|
-| **先跑起来的速度** | ✅ 快，无需固定公网 IP | ❌ 较重，需要正式应用配置 | ✅ 先用 Bot 起步，后续平滑补 Agent |
-| **实时聊天体验** | ✅ 最强，天然适合低延迟和流式回复 | ⚠️ 能收能发，但不是最佳对话入口 | ✅ 默认把实时交互交给 Bot |
-| **异步结果回推** | ✅ 可以，适合已建立会话内追发 | ✅ 可以 | ✅ 会话内追发优先 Bot，必要时 Agent 兜底 |
-| **组织级广播与冷启动触达** | ⚠️ 受会话边界约束 | ✅ 更适合 | ✅ 正式通知和广播走 Agent |
-| **企业微信协作能力** | ✅ 适合个人身份能力入口 | ✅ 适合应用身份能力入口 | ✅ 两种身份平面都兼容 |
-| **适合谁** | 想快速上线、重视实时体验的团队 | 需要正式治理、自动化和组织级能力的团队 | 想同时要“体验”和“能力”的团队 |
-
-> **建议理解方式：**
-> - 如果您最在意的是“先接起来、先用起来、先聊顺”，优先上 `Bot WS`
-> - 如果您最在意的是“正式部署、组织级能力、自动化治理”，补齐 `Agent`
-> - 如果您真正想把 AI 在企业微信里长期用下去，最终往往需要两者并存
-
----
-
-## 🧩 企业微信协作能力：为什么这件事比“能聊天”更重要？
-
-很多企业微信 AI 机器人，本质上只是把答案发回聊天框。  
-真正有价值的，是让 AI 进入您**已经在工作的地方**。
-
-在本插件里，企业微信的**文档、日程、会议、待办、通讯录**等能力，不再只是外围说明，而是被接成了可以实际调用的协作平面。
-
-### 1. Bot WS 协作模式：适合小团队的个人身份入口
-
-根据企业微信最新开放说明，面向 **5 人及以下的小微企业**，`Bot WS` 模式现已开放以**用户个人身份**调用部分企业微信协作能力。
-
-在本插件里，这条链路以 `wecom_mcp` 的方式挂载，只在 **WeCom Bot WS 会话** 中可用：
-
-- 能力入口：`wecom_mcp`
-- 典型能力品类：`doc`、`meeting`、`todo`、`contact`
-- 触发条件：当前会话必须来自 `Bot WS`
-- 更适合的场景：个人身份读写文档、查询通讯录、处理待办、操作会议等轻量协作场景
-
-它的价值在于：
-
-- **门槛低**：无需先走完整的自建应用接入流程
-- **身份自然**：更贴近当前聊天用户自己的协作上下文
-- **启动快**：对小团队尤其友好
-
-它的边界也要明确：
-
-- 依赖 `Bot WS` 会话存在
-- 主动推送仍然以**已建立会话**为前提
-- 实际开放范围以企业微信后台可见权限为准
-
-### 2. Agent 协作模式：适合正式落地的应用身份入口
-
-`Agent` 模式走的是**自建应用 API** 平面，更适合企业级稳定自动化与组织级治理。
-
-在本插件里，当前内置的协作工具主要包括：
-
-- `wecom_doc`：文档、表格、权限、分享可用性诊断等
-- `wecom_calendar`：日历、日程、参与人、回执、默认日历等
-
-它更适合：
-
-- 把协作能力放进正式企业应用权限体系
-- 与定时任务、异步流程、正式投递联动
-- 面向组织对象做更稳定的自动化操作
-
-### 3. 这两条能力链在插件里已经实际接通
-
-当前插件已经把这两条协作链路都注册进来：
-
-- `wecom_mcp`：仅在 `Bot WS` 会话中暴露
-- `wecom_doc`：仅在 `Agent` 会话中暴露
-- `wecom_calendar`：仅在 `Agent` 会话中暴露
-
-也就是说，您拿到的不是“一个只能聊天的企微插件”，而是：
-
-- 一条适合实时对话和个人协作的入口
-- 一条适合正式应用和组织自动化的入口
-
-### 4. 授权方式
-
-请按所选平面分别授权：
-
-- **Bot WS 模式授权**：前往企业微信管理后台 👉「工作台 - 智能机器人」，找到对应机器人，点击编辑，在「可使用权限」处勾选文档、日程、会议、待办、通讯录等对应权限。
-- **Agent 模式授权**：前往企业微信管理后台 👉「工作台 - 协作 - 文档 / 日程 / 会议等」，将您的自建应用加入“可调用接口的应用”。
-
-一句话理解：
-
-- **Bot WS** 更像“当前聊天用户的实时协作入口”
-- **Agent** 更像“企业正式应用身份下的自动化执行入口”
-
-两者同时配置后，您既能拿到顺滑的实时交互，也能拿到企业级可治理的协作能力。
-
----
-
-## 📋 最近更新 (Changelog摘要)
-
-> 项目保持高频迭代，全面对齐甚至超越企业真实业务诉求。
-> **为保持精简，以下仅展示近期 5 次重要更新，完整历史版本（含全部 `v2.2.x`）请前往 [changelog/ 目录](./changelog/) 查阅。**
-
-#### 📌 v2.4.16（2026-04-16）
-- **[版本对齐] 今日 changelog 已补齐到当前包版本** 🧾 `README` 摘要和 `changelog/` 目录现在都直接对应 `package.json` 里的 `v2.4.16`，不会再停留在旧版本号。
-- **[展示修正] 最新版本入口已切换到 `v2.4.16`** 🔖 现在从项目首页查看最近更新时，看到的版本号就是当前实际包版本，减少发布说明和安装版本不一致的困惑。
-- **[维护优化] 变更追踪更直接** 📚 后续如果继续补充 `v2.4.16` 的详细更新内容，可以直接落在 `changelog/v2.4.16.md`，不需要复用旧版本文档。
-
-#### 📌 v2.3.27（2026-03-27）
-- **[重要修复] `channel add` 重新支持 WeCom guided setup** 🧭 之前有些环境下，`wecom` 虽然已经安装，却仍会在 OpenClaw 里显示成 “does not support guided setup yet”，导致无法直接通过交互式向导添加。现在插件已经对齐 OpenClaw 当前的 `setupWizard` 接口，`openclaw channels add` 会重新正常识别和进入配置流程。
-- **[重要修复] 修复 `installedCatalogById is not defined`** 🔧 部分用户在渠道添加或选择阶段会直接遇到 `ReferenceError: installedCatalogById is not defined`，表现上像是“选了渠道就报错”或“添加流程突然失效”。这一版已经修复对应的目录访问逻辑，添加流程恢复稳定。
-- **[升级兼容] 清理 OpenClaw 新版下失效的 SDK 旧入口** 📦 这次同步迁移了 `wecom` 插件里几处已经不再建议继续从 `openclaw/plugin-sdk` 根入口直接拿的旧接口，重点覆盖工具上下文、outbound 适配器和 Bot WS 媒体发送链路，升级 OpenClaw 后更不容易再出现“有的地方能跑、有的地方直接炸”的兼容问题。
-
-#### 📌 v2.3.26（2026-03-26）
-- **[重要修复] 升级 OpenClaw 后不再乱报错** 🔧 修复了新版 OpenClaw 下 `wecom` 插件容易出现的 `is not a function` 一类启动/运行错误。
-- **[回复更稳] Agent 和 Bot WS 不再乱串** ↔️ 现在是谁收到消息，就尽量由谁来回复，不再容易出现“在 Agent 里说话，结果 Bot WS 回你”的情况。
-- **[体验修复] Bot WS 发图后不再多冒一条 `Done...`** 🖼 之前常见表现是：`正在思考` -> 图片 -> 又多一条完成提示。现在最终收尾会尽量接回原来的回复链路。
-- **[占位符修复] 不会一直卡在“正在思考...”** ⏳ 如果图片或文本已经发出去了，占位符会更自然地结束，不会继续无意义地刷屏。
-
-#### 📌 v2.3.19（2026-03-19）
-- **[重要修复] Bot WS 现在也真正走 `dynamicAgents`** 🧭 之前同样开启动态路由时，不同消息链路的行为并不完全一致：Webhook / Agent 能按用户、群聊隔离，Bot WebSocket 却可能重新落回主 Agent。现在 WS 运行时也执行同样的动态路由逻辑，会话隔离终于统一了。
-- **[配置统一] 媒体大小开始优先跟随 OpenClaw 标准 `mediaMaxMb`** 📦 之前 WeCom 插件更偏向读取自己的 `media.maxBytes`，用户改了 OpenClaw 主配置却可能感觉“改了没生效”。现在插件优先支持 `channels.wecom.mediaMaxMb`，并支持 `channels.wecom.accounts.<accountId>.mediaMaxMb` 做账号级覆盖；旧配置仍兼容，但只作为兜底。
-- **[体验修复] 常见本地目录文件现在更符合直觉地可发送** 🖼 过去本地媒体白名单更偏向 OpenClaw 自己目录，导致像 `Downloads`、`Desktop`、`Pictures` 里的图片明明存在，却常被拦下。现在插件默认额外放行这些常见用户目录，同时保留 `channels.wecom.media.localRoots` 继续追加共享盘、挂载盘和业务目录。
-
-#### 📌 v2.3.18（2026-03-18）
-- **[重大升级] 双平面能力融合（Bot WS ＋ MCP 强化）** 🚀 独家引入挂载式的 MCP 能力层。在保留原生 Agent 强力工具的同时，将官方新开放的企业微信能力暴露给大模型。现在，大模型可凭用户身份读写待办、日程、查通讯录。
-- **[多账号硬隔离]** 彻底重构 MCP 缓存池实现 `accountId + category` 的二次硬维隔离，无论您的矩阵挂载了多少家企业的助手，上下文及鉴权缓存绝不会交叉重叠。
-- **[媒体通道重构]** 补齐 Bot WS 本地的媒体上传链，同时设立了严格的 `5秒熔断机制`，若 WebSocket 长通道大文件卡死将无感静默降级到 Agent 私信发送。
-
-*(查看更早期关于“超时熔断代投、动态扩容矩阵”等功能的更新日志，请移步 [changelog/ 目录](./changelog/))*
-
----
-
-## 一、🚀 快速开始
-
-> 推荐统一使用**多账号矩阵模型**。 
-> 即使您的企业只接入了一个账号，也强烈建议将其配入 `channels.wecom.accounts.default` 节点下。
-
-### 1.1 插件安装
+如果你直接在 OpenClaw 源码仓库运行命令，请把本文的 `openclaw` 替换为：
 
 ```bash
-openclaw plugins install @yanhaidao/wecom
-openclaw plugins enable wecom
+node openclaw.mjs
 ```
 
-### 1.2 互动向导式初配 (适合个人开发者与极客)
+## 能力概览
 
-如果您不想手写繁杂的 JSON 配置文件，可以通过交互式向导快速完成最轻量的 WebSocket 长连接部署。`v2.3.27` 起，`wecom` 已重新对齐 OpenClaw 当前的 guided setup 流程，`openclaw channels add` 可以直接识别并进入配置：
+- Bot WebSocket：推荐的接入方式，支持实时收发、流式回复、媒体、模板卡片、心跳和重连。
+- Bot Webhook：使用 JSON 加密回调，可用于不能保持 WebSocket 长连接的部署环境。
+- Agent Webhook：支持企业微信自建应用的 XML 加密回调和 HTTP API 主动发送。
+- Bot 优先、Agent 兜底：Bot 无法完成的主动投递或文件交付可切换到对应账号的 Agent。
+- 多账号：每个账号独立管理 Bot、Webhook、Agent、访问策略和凭据，避免跨账号串号。
+- 官方业务工具：`wecom-cli` 与 16 个 Skills，覆盖消息、通讯录、文档、表格、日历、会议、
+  邮件、微盘、待办和媒体。
+- 企业增强工具：`wecom_doc` 与 `wecom_calendar` 补充高级权限、外部记录、收集表、
+  日历容器和系统日历操作。
+- 上下游企业：`upstreamCorps` 支持企业身份识别、下游令牌交换及跨企业消息回复。
+- 运维能力：`openclaw wecom diagnose --json`、配置迁移、结构化流程日志和敏感信息脱敏。
 
-1. 确保已启用本插件。
-2. 在终端运行添加渠道指令：
-   ```bash
-   openclaw channels add
-   ```
-3. 选择下拉列表中第一顺位的：**企业微信 (WeCom)**
-4. 根据终端亮色指引，填入企微机器人对应的 `Bot ID` 及 `Secret`，机器人即可完成握手并进入可用状态。
+## 快速开始：Bot WebSocket
 
-> **如果您最近刚升级 OpenClaw：**
-> - 若之前在添加渠道时看到 `wecom does not support guided setup yet`，请更新到当前版本后重试。
-> - 若之前在渠道添加阶段见过 `ReferenceError: installedCatalogById is not defined`，这一版也已一并修复。
+这是 OpenClaw 2026.8.1 下最短、最稳定的使用路径。
 
-### 1.3 生产环境顶配架构示范（Bot WS 流式交互 + Agent 私有通道兜底发送）
+### 1. 检查运行环境
 
-如果您的目标不是“接进来能聊两句”，而是让团队在企业微信里长期稳定使用 AI，这套组合更接近生产环境的推荐形态：
-
-- `Bot WS` 负责实时对话、低延迟流式回复和更轻的接入门槛
-- `Agent` 负责主动推送、媒体发送和长任务后的兜底交付
-- `dynamicAgents` 负责把不同用户、不同群聊的会话真正隔离开，避免多人共用一个入口时互相串上下文
-
-请进入 OpenClaw 配置文件（`openclaw.json`）的 `channels.wecom` 内使用：
-
-```jsonc
-{
-  "channels": {
-    "wecom": {
-      "enabled": true,
-      "defaultAccount": "default",
-      "accounts": {
-        "default": {
-          "enabled": true,
-          "name": "企微销售二部支持中枢",
-          "bot": {
-            "primaryTransport": "ws",             // 指定 Bot 主通讯协议：ws 或 webhook
-            "streamPlaceholderContent": "正在深思熟虑，请稍候...", // 避免流式回复开始前长时间无反馈
-            "welcomeText": "你好，我是已连网的专属大脑。",
-            "dm": {
-              "policy": "pairing",
-              "allowFrom": []
-            },
-            "ws": {                               // Bot WS 建连所需凭证
-              "botId": "YOUR_BOT_ID",
-              "secret": "YOUR_BOT_SECRET"
-            }
-          },
-          "agent": {                              // 主动推送、媒体发送与兜底交付链路
-            "corpId": "YOUR_CORP_ID",
-            "agentSecret": "YOUR_AGENT_SECRET",
-            "agentId": 1000001,
-            "token": "AGENT_TOKEN",
-            "encodingAESKey": "AGENT_AES_KEY",
-            "welcomeText": "若长连接断开，我将使用此通道传递残存报告。",
-            "dm": {
-              "policy": "open",
-              "allowFrom": []
-            },
-            "upstreamCorps": {                    // 可选：给上下游企业用户发消息时使用
-              "ww_partner_corp": {
-                "corpId": "ww_partner_corp",
-                "agentId": 1000002
-              }
-            }
-          }
-        }
-      },
-      "mediaMaxMb": 50,                           // 优先使用 OpenClaw 标准媒体上限配置
-      "media": {
-        "tempDir": "/tmp/openclaw-wecom-media",
-        "localRoots": [
-          "/srv/company-share",
-          "/data/reports"
-        ]
-      },
-      "network": {                                // 内网或受限网络环境可通过代理出网
-        "egressProxyUrl": "http://127.0.0.1:3128"
-      },
-      "dynamicAgents": {                          // 为单聊/群聊创建独立路由，减少多人串上下文
-        "enabled": true,
-        "dmCreateAgent": true,
-        "groupEnabled": true,
-        "adminUsers": ["zhangsan001"]             // 管理员绕过动态路由，直连主 Agent
-      }
-    }
-  }
-}
+```bash
+node --version
+openclaw --version
 ```
 
-其中：
+如果 OpenClaw 提示 Node 版本不受支持，请先切换到 Node 24.15 或更新的受支持版本。
 
-- 插件现在默认额外放行常见用户目录：`~/Desktop`、`~/Documents`、`~/Downloads`、`~/Movies`、`~/Pictures`。
-- `channels.wecom.mediaMaxMb` 是首选的媒体大小上限配置，`channels.wecom.accounts.<id>.mediaMaxMb` 可以做账号级覆盖。
-- `channels.wecom.media.localRoots` 用于继续追加你自己的全局目录，例如共享盘、挂载盘或业务导出目录。
-- 旧的 `channels.wecom.media.maxBytes` 仍然兼容，但仅作为向后兼容兜底；新配置建议统一改成 `mediaMaxMb`。
-- 这些目录会和 OpenClaw 默认允许的媒体目录一起生效，不会覆盖默认白名单。
-- 也就是说，像 `~/Downloads/01.png` 这类本机文件现在默认就可以直接发到企微，不需要再单独配置。
-- 如果你需要给上下游企业用户回消息，可以在 `agent` 下追加 `upstreamCorps`；下面的 `1.6` 会单独展开说明。
+### 2. 处理官方插件冲突
 
-> **注意：** 历史配置里的 `agent.corpSecret` 引擎依然能够向后兼容拾起，但后续的新项目推荐采用标准的 `agentSecret` 作为对齐键。
+先检查当前插件：
 
-### 1.4 dynamicAgents 详细说明：为什么生产环境建议开启
+```bash
+openclaw plugins list
+```
 
-`dynamicAgents` 的核心价值，不是“自动创建很多 Agent”，而是让企业微信里的每个用户、每个群聊都拥有稳定、独立的会话落点。  
-如果不开它，所有消息更容易汇入同一个主 Agent；一旦开始多人共用，最先出问题的通常不是模型能力，而是上下文、长期记忆和处理边界混在一起。
+如果已经启用腾讯官方插件，请禁用它：
 
-更简单地看，可以直接按下面这张表决定要不要开：
+```bash
+openclaw plugins disable wecom-openclaw-plugin
+```
 
-| 场景 | 不开时的问题 | 建议配置 | 你得到的结果 |
-|---|---|---|---|
-| 多个同事同时私聊同一个机器人 | 容易共用同一条会话脉络，长期上下文可能互相污染 | `enabled=true` + `dmCreateAgent=true` | 每个人都有自己的稳定上下文 |
-| 一个或多个群长期拿机器人协作 | 不同群更容易共用主 Agent，群与群之间边界不清晰 | `enabled=true` + `groupEnabled=true` | 每个群都有独立会话空间 |
-| 管理员需要统一测试、巡检、接管 | 管理员也会被切进自己的动态 Agent，排障更分散 | `adminUsers=["管理员userid"]` | 管理账号继续直连主 Agent |
-| 只是做 PoC 或单人试用 | 一上来就启用隔离，理解成本偏高 | `enabled=false` | 先把连通性和基础回复跑通 |
+只保留一个 `wecom` Channel 所有者。
 
-系统当前的真实行为如下：
+### 3. 安装插件
 
-- 开启后，会按 `账号 + 会话类型 + 对端 ID` 生成确定性的 Agent ID，例如 `wecom-default-dm-zhangsan` 或 `wecom-default-group-wr123456`
-- 同一个用户或同一个群，下次再发消息时会继续命中同一个动态 Agent，而不是临时随机分配
-- 首次命中时，插件会自动把这个动态 Agent 追加到 `agents.list`，不需要您手工维护一长串列表
-- 这套逻辑同时作用于 `Bot WS` 和 `Agent Callback` 两条主消息链路，不是只有某一种模式才生效
-- `adminUsers` 中的账号会始终绕过动态路由，直接走主 Agent，适合放管理员、运营或排障账号
-- 默认值是 `enabled=false`、`dmCreateAgent=true`、`groupEnabled=true`、`adminUsers=[]`，也就是不开总开关时不会生效，但一旦开启，单聊和群聊会默认一起进入隔离模式
+从 npm 安装正式包：
 
-需要注意的是，`dynamicAgents` 解决的是“路由隔离”和“会话隔离”，不是权限系统本身。  
-也就是说，它能显著减少上下文串线，但账号是否允许私聊、谁能触发命令、某个账号绑定到哪个主 Agent，仍然要结合 `dm.policy`、`bindings` 和企业微信授权配置一起看。
+```bash
+openclaw plugins install --accept-capabilities @yanhaidao/wecom
+```
 
-### 1.5 `localRoots` 详细说明：为什么“文件明明存在”，系统却仍然不发
+升级或覆盖已有安装时可以使用：
 
-`localRoots` 只决定一件事：**这个本地路径允不允许被当作可发送媒体读取。**
+```bash
+openclaw plugins install --accept-capabilities --force @yanhaidao/wecom
+```
 
-| 现象 | 实际含义 |
-|---|---|
-| 文件存在，但发送失败 | 不代表系统允许读取它 |
-| 日志出现 `Local media path is not under an allowed directory` | 路径不在白名单里 |
-| 远程 `https://...` 媒体可以发 | 远程 URL 不走 `localRoots` |
+验证插件已经加载：
 
-默认已经额外放行这些目录：
+```bash
+openclaw plugins inspect wecom
+```
 
-| 默认允许目录 | 用途 |
-|---|---|
-| `~/Desktop` | 桌面文件、临时截图 |
-| `~/Documents` | 文档导出目录 |
-| `~/Downloads` | 下载图片、下载文件 |
-| `~/Movies` | 视频文件 |
-| `~/Pictures` | 图片、相册导出 |
+输出应包含 `Status: loaded`、`channel: wecom` 和当前插件版本。
 
-另外也保留 OpenClaw 自己的 `tmp / state / workspace` 相关目录。
+### 4. 配置企业微信 Bot
 
-如果文件不在默认目录里，再补 `localRoots`：
+推荐使用 OpenClaw 2026.8.1 的 Channel Setup Contract：
+
+```bash
+openclaw channels add wecom \
+  --account main \
+  --name '企业微信' \
+  --connection-mode websocket \
+  --bot-id '<WECOM_BOT_ID>' \
+  --secret '<WECOM_BOT_SECRET>'
+openclaw config set channels.wecom.defaultAccount main
+```
+
+所有新配置都应显式提供 `--account`。本文统一使用 `main`，后续增加其他账号时不需要迁移配置结构。
+
+### 5. 启用业务工具
+
+插件会注册三个工具：`wecom-cli`、`wecom_doc` 和 `wecom_calendar`。推荐按插件 ID 放行：
+
+```bash
+openclaw config get tools.alsoAllow
+openclaw config set tools.alsoAllow '["wecom"]'
+```
+
+`config set` 会替换整个数组。如果现有配置还允许其他插件或工具，请先读取原值，再把 `wecom`
+合并进去，不要直接覆盖其他条目。例如：
+
+```bash
+openclaw config set tools.alsoAllow '["browser","wecom"]'
+```
+
+### 6. 校验配置并启动 Gateway
+
+```bash
+openclaw config validate
+openclaw wecom diagnose --json
+```
+
+前台运行，适合首次调试：
+
+```bash
+openclaw gateway run
+```
+
+需要长期后台运行时，先安装一次系统服务：
+
+```bash
+openclaw gateway install
+openclaw gateway start
+```
+
+已经安装服务时，可以使用：
+
+```bash
+openclaw gateway restart
+```
+
+不要同时启动前台 Gateway 和系统服务。出现“Another gateway already owns this state directory”时，
+先执行 `openclaw gateway status`，然后停止已有实例或继续使用它。
+
+### 7. 验证连接
+
+```bash
+openclaw channels status --probe
+```
+
+成功状态类似：
+
+```text
+企业微信 main (企业微信): enabled, configured, running, connected, works
+```
+
+随后在企业微信中向 Bot 发送一条普通文本。日志应依次出现
+`inbound_received`、`inbound_parsed`、路由/策略阶段和发送完成阶段。
+
+## 打开 OpenClaw Web 管理页
+
+Gateway 默认端口为 `18789`。本机访问：
+
+[http://127.0.0.1:18789/](http://127.0.0.1:18789/)
+
+检查页面是否可访问：
+
+```bash
+curl -I http://127.0.0.1:18789/
+```
+
+如果日志显示 `control ui build rejected`，请对页面执行强制刷新，或清除该站点缓存后重新打开。
+
+不要在没有 Gateway 认证和网络访问控制的情况下把管理页暴露到公网。使用 `gateway.bind=lan`
+时，局域网地址通常为 `http://<本机局域网IP>:18789/`。
+
+## 配置模式
+
+### Bot WebSocket（推荐）
+
+所需凭据：
+
+- `botId`
+- `secret`
+
+即使当前只有一个机器人，也统一使用 `accounts` 结构：
 
 ```json
 {
   "channels": {
     "wecom": {
-      "media": {
-        "localRoots": [
-          "/srv/company-share",
-          "/data/reports",
-          "/mnt/nas/public"
-        ]
+      "enabled": true,
+      "defaultAccount": "main",
+      "accounts": {
+        "main": {
+          "enabled": true,
+          "name": "企业微信",
+          "connectionMode": "websocket",
+          "botId": "<WECOM_BOT_ID>",
+          "secret": "<WECOM_BOT_SECRET>"
+        }
       }
     }
   }
 }
 ```
 
-配置规则：
+除非企业微信明确提供了不同地址，否则不要修改默认 WebSocket 地址
+`wss://openws.work.weixin.qq.com`。
 
-| 规则 | 说明 |
-|---|---|
-| `localRoots` 是追加 | 不会覆盖默认目录 |
-| 建议写绝对路径 | 团队环境更稳定、更清楚 |
-| 只加业务需要的目录 | 不要为了省事把范围放太大 |
-| 不建议放整个大盘或整个用户目录 | 会把本地文件读取边界放得过宽 |
+### Bot Webhook
 
-排障判断：
+所需凭据：
 
-| 问题类型 | 看什么 |
-|---|---|
-| 本地路径是否允许读取 | `localRoots` |
-| 媒体能处理多大 | `channels.wecom.mediaMaxMb` |
-| 企业微信最终能不能收 | 企业微信自身媒体限制 |
-| 远程媒体能不能发 | URL 可访问性，不看 `localRoots` |
+- `token`
+- `encodingAESKey`
+- 可选 `receiveId`
 
-一句话：`localRoots` 管“能不能读这个本地路径”，`mediaMaxMb` 管“最多读多大”。 
+使用 Setup Contract 配置：
 
-### 1.6 上下游企业配置：如何给上下游企业用户发消息
+```bash
+openclaw channels add wecom \
+  --account main \
+  --connection-mode webhook \
+  --token '<WECOM_CALLBACK_TOKEN>' \
+  --encoding-aes-key '<WECOM_ENCODING_AES_KEY>' \
+  --receive-id '<WECOM_RECEIVE_ID>'
+```
 
-如果你的企业微信应用已经共享给上下游企业，插件现在可以根据下游企业的 `CorpID` 和 `AgentID`，把回复准确发回对应的上下游用户。
+推荐回调路径：`https://<gateway-host>/plugins/wecom/bot/<accountId>`，例如
+`https://<gateway-host>/plugins/wecom/bot/main`。
 
-这件事适合的场景很明确：
+兼容路径 `/wecom` 和 `/wecom/bot` 仅用于已有部署迁移；新配置应使用
+`/plugins/wecom/bot/<accountId>`。
 
-- 你的主企业已经把自建应用共享给经销商、供应商或合作方
-- 这些上下游企业用户会从不同 `CorpID` 进入同一个 Agent 通道
-- 你希望插件能自动识别“这是下游企业用户”，并走对应企业的应用身份发消息
+### Agent 自建应用
 
-最小配置示例如下：
+Agent 模式用于 XML 回调、主动消息、部门/标签投递，以及 Bot 无法直接交付文件时的兜底。
 
-```jsonc
+需要在企业微信管理后台准备：
+
+- CorpID
+- CorpSecret
+- AgentId
+- 回调 Token
+- EncodingAESKey
+
+Agent 配置也放在所属账号下面：
+
+```json
 {
   "channels": {
     "wecom": {
+      "enabled": true,
+      "defaultAccount": "main",
       "accounts": {
-        "default": {
+        "main": {
+          "enabled": true,
+          "name": "企业微信",
           "agent": {
-            "corpId": "ww_primary_corp",
-            "agentId": 1000001,
-            "agentSecret": "PRIMARY_AGENT_SECRET",
-            "token": "PRIMARY_CALLBACK_TOKEN",
-            "encodingAESKey": "PRIMARY_ENCODING_AES_KEY",
-            "upstreamCorps": {
-              "ww_partner_corp": {
-                "corpId": "ww_partner_corp",
-                "agentId": 1000002
-              }
+            "corpId": "<WECOM_CORP_ID>",
+            "corpSecret": "<WECOM_CORP_SECRET>",
+            "agentId": 1000002,
+            "token": "<WECOM_CALLBACK_TOKEN>",
+            "encodingAESKey": "<WECOM_ENCODING_AES_KEY>"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+推荐回调路径：`https://<gateway-host>/plugins/wecom/agent/<accountId>`，例如
+`https://<gateway-host>/plugins/wecom/agent/main`。
+
+先启动 Gateway，再在企业微信管理后台保存回调地址。保存时企业微信会立即发送 URL 校验请求。
+
+### Bot 与 Agent 同时使用
+
+Bot 与 Agent 可以配置在同一账号中。Bot 负责实时会话和流式回复，Agent 提供主动发送、
+文件兜底及自建应用回调：
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "enabled": true,
+      "defaultAccount": "main",
+      "accounts": {
+        "main": {
+          "enabled": true,
+          "name": "企业微信",
+          "connectionMode": "websocket",
+          "botId": "<WECOM_BOT_ID>",
+          "secret": "<WECOM_BOT_SECRET>",
+          "agent": {
+            "corpId": "<WECOM_CORP_ID>",
+            "corpSecret": "<WECOM_CORP_SECRET>",
+            "agentId": 1000002,
+            "token": "<WECOM_CALLBACK_TOKEN>",
+            "encodingAESKey": "<WECOM_ENCODING_AES_KEY>"
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## 多账号
+
+多账号是本项目的默认配置模型，不是兼容补丁。即使当前只接入一个机器人，也使用
+`channels.wecom.accounts.main`。每个账号必须拥有自己的 Bot/Webhook/Agent 凭据。
+
+### 使用 CLI 添加账号
+
+```bash
+openclaw channels add wecom \
+  --account main \
+  --name '主机器人' \
+  --connection-mode websocket \
+  --bot-id '<MAIN_BOT_ID>' \
+  --secret '<MAIN_BOT_SECRET>'
+
+openclaw channels add wecom \
+  --account support \
+  --name '客服机器人' \
+  --connection-mode websocket \
+  --bot-id '<SUPPORT_BOT_ID>' \
+  --secret '<SUPPORT_BOT_SECRET>'
+
+openclaw config set channels.wecom.defaultAccount main
+openclaw config validate
+openclaw gateway restart
+openclaw channels status --probe
+```
+
+### 多账号配置结构
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "enabled": true,
+      "defaultAccount": "main",
+      "accounts": {
+        "main": {
+          "enabled": true,
+          "name": "主机器人",
+          "connectionMode": "websocket",
+          "botId": "<MAIN_BOT_ID>",
+          "secret": "<MAIN_BOT_SECRET>",
+          "dmPolicy": "open",
+          "groupPolicy": "open"
+        },
+        "support": {
+          "enabled": true,
+          "name": "客服机器人",
+          "connectionMode": "websocket",
+          "botId": "<SUPPORT_BOT_ID>",
+          "secret": "<SUPPORT_BOT_SECRET>",
+          "dmPolicy": "allowlist",
+          "allowFrom": ["<SUPPORT_USER_ID>"],
+          "groupPolicy": "allowlist",
+          "groupAllowFrom": ["<SUPPORT_CHAT_ID>"]
+        }
+      }
+    }
+  }
+}
+```
+
+每个账号都应显式配置自己的访问策略、媒体和网络设置。Bot ID、Bot Secret 和 Agent 凭据
+同样必须按账号配置，不依赖隐式继承。
+
+### 绑定账号与 Agent
+
+多账号部署应为每个账号配置明确的 OpenClaw binding：
+
+```json
+{
+  "bindings": [
+    {
+      "agentId": "main-agent",
+      "match": { "channel": "wecom", "accountId": "main" }
+    },
+    {
+      "agentId": "support-agent",
+      "match": { "channel": "wecom", "accountId": "support" }
+    }
+  ]
+}
+```
+
+缺少账号上下文、显式跨账号调用、`upstreamCorps` 映射歧义时，增强工具会失败关闭，避免使用错误企业凭据。
+
+## 业务工具与 Skills
+
+### `wecom-cli`
+
+官方标准业务入口。工具参数是 `@wecom/cli` 的命令参数数组，例如：
+
+```json
+{
+  "args": ["--help"]
+}
+```
+
+对应 Skills 覆盖：
+
+- 消息与媒体
+- 通讯录
+- 在线文档、智能文档
+- 在线表格、智能表格
+- 日历、会议、会议纪要
+- 邮件、微盘、待办
+
+### `wecom_doc`
+
+保留 YanHaidao 版本的文档增强能力，包括权限诊断、分享校验、收集表、高级权限和外部记录。
+这些能力并非对 `wecom-cli` 的简单重复。
+
+### `wecom_calendar`
+
+保留日历容器与系统日历增强操作。官方标准日程操作仍优先使用 `wecom-cli`。
+
+增强工具绑定当前企业微信会话的 `accountId`。在普通 Web 会话或无法解析账号的多账号会话中，
+工具可能不会显示或会拒绝执行，这是防串号设计。
+
+## 访问控制
+
+### 单聊策略
+
+`dmPolicy` 支持：
+
+- `open`：允许所有用户。
+- `pairing`：通过 OpenClaw 配对审批。
+- `allowlist`：只允许 `allowFrom` 中的用户。
+- `disabled`：禁用单聊。
+
+配对命令：
+
+```bash
+openclaw pairing list wecom
+openclaw pairing approve wecom <PAIRING_CODE>
+```
+
+生产环境建议使用 `pairing` 或 `allowlist`。
+
+### 群聊策略
+
+`groupPolicy` 支持 `open`、`allowlist` 和 `disabled`。白名单模式示例：
+
+```json
+{
+  "channels": {
+    "wecom": {
+      "defaultAccount": "main",
+      "accounts": {
+        "main": {
+          "groupPolicy": "allowlist",
+          "groupAllowFrom": ["<WECOM_CHAT_ID>"],
+          "groups": {
+            "<WECOM_CHAT_ID>": {
+              "allowFrom": ["<WECOM_USER_ID>"]
             }
           }
         }
@@ -432,118 +497,274 @@ openclaw plugins enable wecom
 }
 ```
 
-可以这样理解这组配置：
+## 媒体与主动投递
 
-- `agent.corpId` / `agent.agentId` 是上游主企业自己的应用配置
-- `upstreamCorps.<key>.corpId` 是某个下游企业的 `CorpID`
-- `upstreamCorps.<key>.agentId` 是这个下游企业里共享应用对应的 `AgentID`
-- 下游企业不需要单独配置 `agentSecret`；仍然使用主企业应用的鉴权链路
+| 类型 | Bot/插件限制 | 超限行为 |
+|---|---:|---|
+| 图片 | 10 MB | 尝试作为文件发送 |
+| 视频 | 10 MB | 尝试作为文件发送 |
+| 语音 | 2 MB，AMR | 非 AMR 或超限时尝试作为文件发送 |
+| 文件 | 20 MB | 拒绝发送并返回可诊断错误 |
 
-这些参数通常可以从两条路拿到：
+允许读取本地媒体时，应显式配置 `mediaLocalRoots`，不要开放整个用户目录或文件系统根目录。
 
-- 直接从企业微信管理后台查看下游企业的 `CorpID` 和共享应用的 `AgentID`
-- 通过企业微信“获取应用共享信息”接口批量拉取
+主动发送目标支持：
 
-如果你打算走自动拉取，最关键的信息只有两个：
+- `user:<userid>`
+- `party:<department-id>` 或 `dept:<department-id>`
+- `tag:<tag-id>`
+- `group:<chat-id>` 或 `chat:<chat-id>`
 
-- 官方文档：`https://developer.work.weixin.qq.com/document/path/95813`
-- 你需要把返回里的 `corp_list[].corpid` 映射到 `upstreamCorps.<key>.corpId`，把 `corp_list[].agentid` 映射到 `upstreamCorps.<key>.agentId`
+部门、标签和多数主动媒体投递需要对应账号的 Agent 配置。
 
-插件内部的工作逻辑是：
+## 定时任务
 
-- 收到消息时，会先看回调里的 `ToUserName`
-- 如果这个 `CorpID` 和主企业 `corpId` 不一致，就把它识别成上下游企业用户
-- 回复时会自动走对应的上下游 target 和下游企业配置，而不是误发回主企业通道
-
-需要特别注意三点：
-
-- `upstreamCorps` 只解决“发给哪个下游企业”的问题，不替代主企业应用本身的授权配置
-- 上下游企业需要先在企业微信后台完成应用共享，并确保应用已加入“可调用接口的应用”
-- 如果你只是想快速看完整字段说明、接口映射和日志样例，可以直接看 [UPSTREAM_CONFIG.md](./UPSTREAM_CONFIG.md)
-
----
-
-## 二、🏢 企业微信后台回调挂载指南 (针对使用了 Webhook 或 Agent Callback 的重度用户)
-
-如果您需要让 Agent 通道接收复杂的地理位置及交互式卡片事件，需要将系统的路径下发到企业微信管理后台。
-由于系统默认采纳**多账号分流路径派生**，请切记不要随意丢弃末尾的 `{accountId}`，如下所示：
-
-| 类型 | 您的 OpenClaw 可信域名 | 默认账号路由锚点 | 如果配置了 Ops 项目组子账号 |
-|---|---|---|---|
-| **Bot Webhook** | `https://x.com` | `/plugins/wecom/bot/default` | `/plugins/wecom/bot/ops` |
-| **Agent Callback** | `https://x.com` | `/plugins/wecom/agent/default`| `/plugins/wecom/agent/ops` |
-
-*警告：极度不推荐将老旧单一根路径（如 `/plugins/wecom/bot`）在未指定账户空间下裸奔使用，一旦您的业务扩张到第二个账号，将会引发难以追溯的回调抢占雪崩。*
-
----
-
-## 三、📡 排障与抓包：洞悉黑盒下的脉搏
-
-当前版本请使用以下三条命令组合排障。注意：`openclaw channels status` **不支持** `--deep`，插件级探测参数是 `--probe`；`--deep` 属于顶层 `openclaw status`。
-
-### 3.1 先看插件级状态快照
+使用 OpenClaw 2026.8.1 的 Cron/Automations CLI，不要直接编辑内部存储文件：
 
 ```bash
+openclaw cron add \
+  --name 'wecom-daily-report' \
+  --agent main-agent \
+  --cron '0 9 * * 1-5' \
+  --tz 'Asia/Shanghai' \
+  --message '生成今天的工作简报。' \
+  --announce \
+  --channel wecom \
+  --to 'party:1'
+```
+
+常用命令：
+
+```bash
+openclaw cron list
+openclaw cron show <JOB_ID>
+openclaw cron run <JOB_ID>
+openclaw cron runs --id <JOB_ID>
+openclaw cron disable <JOB_ID>
+openclaw cron enable <JOB_ID>
+openclaw cron rm <JOB_ID>
+```
+
+多账号投递需要在任务中指定正确的 WeCom 账号；部门和标签投递需要 Agent 凭据与企业微信可信 IP。
+
+## 从旧版本升级
+
+### 从本插件改版前的多账号版本升级
+
+当前版本继续兼容改版前的多账号配置，并通过 Doctor 迁移以下结构：
+
+- `accounts.<id>.bot.ws.botId` → `accounts.<id>.botId`
+- `accounts.<id>.bot.ws.secret` → `accounts.<id>.secret`
+- `accounts.<id>.agent.agentSecret` → `accounts.<id>.agent.corpSecret`
+- 旧 Bot/Agent DM 子配置 → 当前账号级访问控制字段
+
+推荐流程：
+
+```bash
+openclaw gateway stop
+openclaw plugins update wecom
+openclaw doctor --fix --non-interactive
+openclaw config validate
+openclaw gateway start
+openclaw channels status --probe
+openclaw wecom diagnose --json
+```
+
+如果 Gateway 没有安装为系统服务，请跳过 `gateway stop/start`，更新后重新运行
+`openclaw gateway run`。
+
+### 从腾讯官方插件切换
+
+两个插件共享 `channels.wecom` 配置，但不能同时拥有 Channel：
+
+```bash
+openclaw gateway stop
+openclaw plugins disable wecom-openclaw-plugin
+openclaw plugins install --accept-capabilities @yanhaidao/wecom
+openclaw doctor --fix --non-interactive
+openclaw config validate
+openclaw gateway start
 openclaw channels status --probe
 ```
 
-适合回答这些问题：
+切换前请备份 `~/.openclaw/openclaw.json`。不要把真实密钥提交到 Git。
 
-- 企业微信账号是否已被网关识别并加载
-- 账号当前是否 `enabled` / `configured`
-- 运行时是否 `running` / `connected` / `authenticated`
-- 最近一次错误、最近进出站时间是否异常
+## 本地源码开发
 
-如果网关可达，这条命令会返回企业微信账号的运行时快照。  
-如果网关不可达，它会自动退化为“只看配置”的摘要输出。
-
-### 3.2 再看全局深度诊断
+### 构建插件
 
 ```bash
-openclaw status --deep
+git clone https://github.com/YanHaidao/wecom.git
+cd wecom
+npm ci --ignore-scripts --workspaces=false
+npm test
+npm run build
 ```
 
-这条命令是 **OpenClaw 全局诊断入口**，适合确认：
+### 链接到 OpenClaw 2026.8.1
 
-- Gateway 本身是否健康
-- 当前机器上的整体通道探测是否正常
-- 最近心跳、会话、服务状态是否异常
-
-当您怀疑问题不只在企业微信插件，而是 Gateway、网络、配置路径或其他通道共同影响时，优先跑这条。
-
-### 3.3 最后直接看 WeCom 日志
+在 OpenClaw 仓库根目录运行：
 
 ```bash
-openclaw channels logs --channel wecom --lines 200
+node openclaw.mjs plugins install --link --accept-capabilities ../wecom
+node openclaw.mjs config set tools.alsoAllow '["wecom"]'
+node openclaw.mjs config validate
+node openclaw.mjs gateway run
 ```
 
-当发生疑难连接断开、消息不回、媒体文件下发神秘消失时，直接看日志最有效。新版日志已经被精细地切分在不同命名空间锚点下，助你顺藤摸瓜：
+修改插件源码后重新执行：
 
-- `[wecom-runtime]`：统一运行时主线。看收消息、分发、回消息、最近错误与会话归属漂移。
-- `[wecom-ws]`：Bot WebSocket 通道。看连接、鉴权、断线、重连、帧收发与保活。
-- `[wecom-agent-delivery]`：Agent 主动发送链路。看用户/部门/标签目标解析、媒体发送和账号错配。
+```bash
+cd ../wecom
+npm test
+npm run build
+```
 
-### 3.4 推荐排障顺序
+然后重启 Gateway。链接模式会继续使用当前目录，不需要重复复制插件文件。
 
-建议按下面顺序执行：
+## 诊断与排错
+
+### 一组完整的只读检查
+
+```bash
+openclaw plugins inspect wecom
+openclaw plugins doctor
+openclaw config validate
+openclaw wecom diagnose --json
+openclaw gateway status --deep
+openclaw channels status --probe
+```
+
+### `Another gateway already owns this state directory`
+
+同一个 `OPENCLAW_STATE_DIR` 已经有 Gateway：
+
+```bash
+openclaw gateway status
+openclaw gateway stop
+```
+
+只有在确认已有实例应停止时才执行 `gateway stop`。前台运行的 Gateway 应在对应终端中退出。
+
+### Channel 显示 configured，但没有 connected
+
+依次检查：
+
+1. 当前账号的 `botId` 与 `secret` 是否属于同一个企业微信 Bot。
+2. `connectionMode` 是否为 `websocket`。
+3. Node.js 是否满足 OpenClaw 2026.8.1 的版本要求。
+4. 日志中是否出现 `socket_connected`、`authenticated` 或明确的认证错误。
+5. 多账号下是否把凭据写在了正确的 `accounts.<accountId>` 中。
+
+### Channel connected，但消息没有回复
 
 ```bash
 openclaw channels status --probe
-openclaw status --deep
-openclaw channels logs --channel wecom --lines 200
+openclaw wecom diagnose --json
 ```
 
-您可以按输出这样判断：
+然后查看当天日志：
 
-- `configured=false`：先检查 `bot.ws.botId`、`bot.ws.secret`、`agent.corpId`、`agent.agentSecret`、`agent.agentId` 等配置是否完整。
-- `running=false`：说明账号没有真正启动，优先看 `[wecom-runtime]`。
-- `connected=false` 或 `authenticated=false`：优先看 `[wecom-ws]`，一般是 WebSocket 握手、密钥或连接稳定性问题。
-- 能收不能发，或群里发文件/卡片失败：优先看 `[wecom-agent-delivery]`。
-- `lastError` 持续刷新：通常不是一次性误报，建议结合最近 200 行日志一起看。
+```bash
+tail -f /tmp/openclaw/openclaw-$(date +%F).log
+```
 
----
+当前插件会记录 `trace`、`account`、`stage`、耗时、字节数和媒体数量，但不会记录原始消息正文、
+密钥、用户 ID、消息 ID 或本地文件路径。
 
-## 四、🤝 项目协作者
+### 工具没有出现
+
+确认整个插件已经放行：
+
+```bash
+openclaw config get tools.alsoAllow
+openclaw config set tools.alsoAllow '["wecom"]'
+openclaw gateway restart
+```
+
+再检查工具契约：
+
+```bash
+openclaw plugins list --json
+```
+
+`wecom` 条目应包含 `wecom-cli`、`wecom_doc` 和 `wecom_calendar`。
+
+### Webhook 返回 401 或签名验证失败
+
+检查回调 URL 对应的账号、Token、EncodingAESKey 和 ReceiveId/CorpID。多账号部署优先使用带
+`accountId` 的推荐路径，避免多个账号使用相同回调路径时发生签名匹配歧义。
+
+## 官方主线同步
+
+腾讯官方仓库仅作为只读上游。检查新版本：
+
+```bash
+npm run upstream:check
+```
+
+基线记录在 [UPSTREAM_BASELINE.json](UPSTREAM_BASELINE.json)。融合原则与验收范围见：
+
+- [OFFICIAL_PLUGIN_MIGRATION.md](OFFICIAL_PLUGIN_MIGRATION.md)
+- [OFFICIAL_CAPABILITY_ACCEPTANCE.md](OFFICIAL_CAPABILITY_ACCEPTANCE.md)
+- [docs/UPSTREAM_CONFIG.md](docs/UPSTREAM_CONFIG.md)
+
+同步时只把经过审查的官方变化迁移到本仓库，不向腾讯官方仓库提交或推送代码。
+
+## 发布到 npm
+
+仓库使用 GitHub Actions 和 npm Trusted Publishing。推送与 `package.json.version` 一致的版本标签后，
+工作流会依次校验发布元数据、安装锁定依赖、运行测试、构建、生成并检查 tarball，然后把同一个
+tarball 发布到 npm；成功后再创建对应的 GitHub Release。
+
+### 一次性配置 npm Trusted Publisher
+
+在 npm 网站打开 `@yanhaidao/wecom` 的包设置，添加 GitHub Actions Trusted Publisher：
+
+- Organization or user：`YanHaidao`
+- Repository：`wecom`
+- Workflow filename：`release.yml`
+- Environment：`release`
+
+仓库的 `release` Environment 名称必须与 npm 设置完全一致。工作流使用 OIDC，不需要配置
+`NPM_TOKEN`；首次验证发布成功后，应删除仓库中遗留的 npm 发布令牌。
+
+### 发布一个新版本
+
+先手动修改 `package.json` 中的 `version`，例如从 `2.7.260` 改为 `2.7.261`。然后完成本地检查，
+提交版本修改并推送到 GitHub：
+
+```bash
+npm ci --ignore-scripts --workspaces=false
+npm test
+npm run build
+git add package.json
+git commit -m "release: v2.7.261"
+git push origin main
+```
+
+确认 GitHub 上的目标提交和版本号无误后，为该提交创建同版本标签 `v2.7.261`。可以在 GitHub
+Release 页面创建标签，也可以在本地执行：
+
+```bash
+git tag v2.7.261
+git push origin v2.7.261
+```
+
+标签必须严格等于 `v` 加 `package.json.version`。不要复用或移动已经发布过的版本标签，因为 npm
+的同一包版本不能覆盖发布。
+
+标签推送后，在 GitHub 的 Actions 页面查看 `Publish npm package`。发布完成后验证：
+
+```bash
+npm view @yanhaidao/wecom version
+npm view @yanhaidao/wecom dist-tags --json
+```
+
+当前 `2.7.260` 已经发布且已有 `v2.7.260` 标签，因此下一次发布必须先提升版本号，不能重新发布
+`2.7.260`。
+
+## 项目协作者
 
 感谢所有为本项目提交代码、测试、文档与反馈的协作者。
 
@@ -553,22 +774,26 @@ openclaw channels logs --channel wecom --lines 200
   </a>
 </p>
 
-如果头像墙没有立刻刷新，通常是 GitHub 统计或第三方缓存延迟，稍后再看即可。
+如果头像墙没有立即刷新，通常是 GitHub 统计或第三方缓存延迟，稍后再查看即可。
 
----
+## 联系作者
 
-## 五、📮 联系作者 与 许可证协议指引
-
-<p>
-  如果您在搭建这套极度庞大的多端复合体系时遇到迷思，或者对底层代理流量重定向有着深度企业定制化需求，请毫无顾虑地与我连接：
-</p>
-
-- 微信直接交流群（扫描底部二维码进群探讨技术）：
-- **维护者**：YanHaidao 
+- 维护者与原创作者：[YanHaidao](https://github.com/YanHaidao)
+- 企业微信交流群：扫描下方二维码进群交流、反馈问题或讨论企业定制需求。
 
 ![企业微信交流群](https://openclaw.cc/wechat-github.jpg)
 
-### 最后的话：关于开源及署名
-本项目遵循 **ISC License**，您可以将其用于极其广阔的项目天地中。但开源不是拿来主义：
-在此明确强调，包括所谓的“Bot+Agent 保活接力超时融合机制”、“千人千面多账户切面”、“自动寻的路由下沉” 这背后全是作者无数个在企业真实现网撞墙实验出的架构结晶。**拒绝一切去除原作者署名、粗暴改名换姓占为己用的魔改上架行为。**
-愿我们能在彼此尊重的前提下，共同拓展 OpenClaw 生态的无垠边界。
+## 许可证与版权
+
+YanHaidao 原创与增强部分：Copyright © 2026 YanHaidao。
+
+本项目以 [ISC License](LICENSE) 发布。你可以依据许可证使用、复制、修改和分发本项目，
+但须保留许可证规定的版权及许可声明。
+
+来自腾讯官方插件的代码继续遵循其 MIT 许可；对应来源、同步基线和完整归属说明见
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)。该第三方归属与 YanHaidao 原创增强部分的
+署名同时保留，互不替代。
+
+开源不是拿来主义。本项目中的多账号切面、Bot + Agent 保活接力与超时融合机制、自动路由
+下沉等能力，来自作者在企业真实环境中的持续实践。请在使用和再发布时尊重许可证、保留署名，
+不要以删除作者信息或改名换姓的方式占为己有。

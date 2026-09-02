@@ -1,58 +1,47 @@
-export const WEBHOOK_PATHS = {
-  BOT: "/wecom/bot",
-  BOT_ALT: "/wecom",
-  AGENT: "/wecom/agent",
-  BOT_PLUGIN: "/plugins/wecom/bot",
-  AGENT_PLUGIN: "/plugins/wecom/agent",
-} as const;
-
-/** 企微开放接口域名，动态拼 path 的调用（日历、文档）直接用它。 */
-export const API_BASE = "https://qyapi.weixin.qq.com";
-
-export const API_ENDPOINTS = {
-  GET_TOKEN: `${API_BASE}/cgi-bin/gettoken`,
-  /** 上下游企业：用上游 token 换下游企业 token。 */
-  GET_UPSTREAM_TOKEN: `${API_BASE}/cgi-bin/corpgroup/corp/gettoken`,
-  SEND_MESSAGE: `${API_BASE}/cgi-bin/message/send`,
-  SEND_APPCHAT: `${API_BASE}/cgi-bin/appchat/send`,
-  UPLOAD_MEDIA: `${API_BASE}/cgi-bin/media/upload`,
-  DOWNLOAD_MEDIA: `${API_BASE}/cgi-bin/media/get`,
-} as const;
-
 /**
- * 各发送路径的消息长度上限，单位统一为 UTF-8 字节——企微手册的限制都以字节计。
- *
- * 注意不要按字符切分：纯中文每字符 3 字节，把字节上限当字符上限用会超出
- * 3 倍，而企微对 text 是「超过将截断」，不报错。分片走
- * shared/byte-chunking.ts 的 chunkTextToByteLimit。
+ * WeCom 双模式常量定义
  */
-export const MESSAGE_BYTE_LIMITS = {
-  /**
-   * 自建应用 message/send 的 text 与 markdown，以及 appchat/send 的
-   * text 与 markdown。四者都是 2048 字节。
-   * https://developer.work.weixin.qq.com/document/path/90236
-   * https://developer.work.weixin.qq.com/document/path/90248
-   */
-  AGENT_MESSAGE: 2_048,
-  /**
-   * 智能机器人 WS 流式回复的 stream.content。
-   * 见 @wecom/aibot-node-sdk 的 StreamReplyBody：
-   * 「回复内容（支持 Markdown），最长不超过 20480 个字节，必须是 utf8 编码」
-   */
-  BOT_WS_STREAM: 20_480,
+
+/** 固定 Webhook 路径 */
+export const WEBHOOK_PATHS = {
+    /** Bot 模式历史兼容路径（不再维护） */
+    BOT: "/wecom",
+    /** Bot 模式历史备用兼容路径（不再维护） */
+    BOT_ALT: "/wecom/bot",
+    /** Agent 模式历史兼容路径（不再维护） */
+    AGENT: "/wecom/agent",
+    /** Bot 模式推荐路径前缀 */
+    BOT_PLUGIN: "/plugins/wecom/bot",
+    /** Agent 模式推荐路径前缀 */
+    AGENT_PLUGIN: "/plugins/wecom/agent",
 } as const;
 
+/** 企业微信 API 端点 */
+export const API_ENDPOINTS = {
+    GET_TOKEN: "https://qyapi.weixin.qq.com/cgi-bin/gettoken",
+    GET_UPSTREAM_TOKEN: "https://qyapi.weixin.qq.com/cgi-bin/corpgroup/corp/gettoken",
+    SEND_MESSAGE: "https://qyapi.weixin.qq.com/cgi-bin/message/send",
+    SEND_APPCHAT: "https://qyapi.weixin.qq.com/cgi-bin/appchat/send",
+    UPLOAD_MEDIA: "https://qyapi.weixin.qq.com/cgi-bin/media/upload",
+    DOWNLOAD_MEDIA: "https://qyapi.weixin.qq.com/cgi-bin/media/get",
+} as const;
+
+/** 各类限制常量 */
 export const LIMITS = {
-  TOKEN_REFRESH_BUFFER_MS: 60_000,
-  REQUEST_TIMEOUT_MS: 15_000,
-  MAX_REQUEST_BODY_SIZE: 1024 * 1024,
-  BOT_WEBHOOK_PASSIVE_WINDOW_MS: 5_000,
-  BOT_WEBHOOK_RESPONSE_URL_TTL_MS: 60 * 60 * 1000,
-  BOT_STREAM_WINDOW_MS: 6 * 60 * 1000,
-  BOT_WS_HEARTBEAT_MS: 30_000,
+    /** 文本消息最大字节数 */
+    TEXT_MAX_BYTES: 2048,
+    /** Token 刷新缓冲时间 (提前刷新) */
+    TOKEN_REFRESH_BUFFER_MS: 60_000,
+    /** HTTP 请求超时 */
+    REQUEST_TIMEOUT_MS: 15_000,
+    /** 最大请求体大小 */
+    MAX_REQUEST_BODY_SIZE: 1024 * 1024,
 } as const;
 
+/** AES 加密常量 */
 export const CRYPTO = {
-  PKCS7_BLOCK_SIZE: 32,
-  AES_KEY_LENGTH: 32,
+    /** PKCS#7 块大小 */
+    PKCS7_BLOCK_SIZE: 32,
+    /** AES Key 长度 */
+    AES_KEY_LENGTH: 32,
 } as const;

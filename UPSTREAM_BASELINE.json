@@ -1,0 +1,22 @@
+{
+  "repository": "https://github.com/WecomTeam/wecom-openclaw-plugin.git",
+  "remote": "official",
+  "commit": "3b1cbe3e664352821758d99ae5907f5620fce26e",
+  "packageVersion": "2026.8.17",
+  "synchronizedAt": "2026-09-01",
+  "trackedSurfaces": [
+    "index.ts",
+    "openclaw.plugin.json",
+    "package.json",
+    "skills",
+    "src",
+    "tsconfig.json"
+  ],
+  "localOwnership": [
+    "plugin/package identity",
+    "upstreamCorps tenant identity and fail-closed routing",
+    "advanced document and calendar tools",
+    "configuration diagnostics",
+    "strict HTTP proxy and timeout wrapper"
+  ]
+}

@@ -41,6 +41,12 @@ export type WecomBotInboundVoice = WecomBotInboundBase & {
     quote?: WecomInboundQuote;
 };
 
+export type WecomBotInboundVideo = WecomBotInboundBase & {
+    msgtype: "video";
+    video?: { url?: string; aeskey?: string };
+    quote?: WecomInboundQuote;
+};
+
 export type WecomBotInboundStreamRefresh = WecomBotInboundBase & {
     msgtype: "stream";
     stream?: { id?: string };
@@ -59,16 +65,14 @@ export type WecomBotInboundEvent = WecomBotInboundBase & {
  * **WecomInboundQuote (引用消息)**
  * 
  * 消息中引用的原始内容（如回复某条消息）。
- * 支持引用文本、图片、混合类型、语音、文件、视频等多种媒体类型。
- * 
- * 注意：引用中的媒体 URL 时效约 5 分钟，必须尽快下载和解密。
+ * 支持引用文本、图片、混合类型、语音、文件等。
  */
 export type WecomInboundQuote = {
     msgtype?: "text" | "image" | "mixed" | "voice" | "file" | "video";
     /** 引用文本内容 */
     text?: { content?: string };
-    /** 引用图片 URL，可包含出现时的加密密钥 aeskey */
-    image?: { url?: string; aeskey?: string };
+    /** 引用图片 URL */
+    image?: { url?: string };
     /** 引用混合消息 (图文) */
     mixed?: {
         msg_item?: Array<{
@@ -77,17 +81,18 @@ export type WecomInboundQuote = {
             image?: { url?: string };
         }>;
     };
-    /** 引用语音 - 仅含转写文本，无 URL 需下载（按纯文本处理） */
+    /** 引用语音 */
     voice?: { content?: string };
-    /** 引用文件 URL 及其加密密钥 */
-    file?: { url?: string; aeskey?: string };
-    /** 引用视频 URL 及其加密密钥（新增支持） */
-    video?: { url?: string; aeskey?: string };
+    /** 引用文件 */
+    file?: { url?: string };
+    /** 引用视频 */
+    video?: { url?: string };
 };
 
 export type WecomBotInboundMessage =
     | WecomBotInboundText
     | WecomBotInboundVoice
+    | WecomBotInboundVideo
     | WecomBotInboundStreamRefresh
     | WecomBotInboundEvent
     | (WecomBotInboundBase & { quote?: WecomInboundQuote } & Record<string, unknown>);

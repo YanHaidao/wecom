@@ -1,143 +1,91 @@
-name: Release & Publish
+name: Publish npm package
 
 on:
   push:
     tags:
-      - 'v*'
-      - 'wecom-v*'
+      - "v*.*.*"
+
+concurrency:
+  group: npm-publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   publish:
+    if: github.repository == 'YanHaidao/wecom'
+    name: Verify and publish
     runs-on: ubuntu-latest
-    # 🌟 必须与 npm 设置的 Environment 一致
+    timeout-minutes: 20
     environment: release
     permissions:
-      contents: write # 发布 Release
-      id-token: write # 获取 OIDC 身份令牌
+      contents: read
+      id-token: write
+
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - name: Check out the tagged commit
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # npm Trusted Publishing (OIDC) requires npm >=11.5.1.
-          # Use Node 24 to get modern npm in hosted runners.
-          node-version: '24'
-          registry-url: 'https://registry.npmjs.org'
+          persist-credentials: false
 
-      - name: Show runtime versions
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          registry-url: "https://registry.npmjs.org"
+          cache: npm
+
+      - name: Set up npm Trusted Publishing support
+        run: npm install --global npm@12.0.2
+
+      - name: Show release environment
         run: |
-          node -v
-          npm -v
+          node --version
+          npm --version
 
-      - name: Ensure npm trusted publishing support
+      - name: Verify tag and package metadata
+        run: npm run release:verify -- "$GITHUB_REF_NAME"
+
+      - name: Install dependencies
+        run: npm ci --ignore-scripts --workspaces=false
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build distribution
+        run: npm run build
+
+      - name: Pack the exact release artifact
+        id: pack
         run: |
-          npm i -g npm@^11.5.1
-          npm -v
-          npm config delete always-auth || true
+          npm pack --ignore-scripts --json > /tmp/npm-pack.json
+          cat /tmp/npm-pack.json
+          PACKAGE_FILE="$(node --input-type=module -e "import fs from 'node:fs'; const [result] = JSON.parse(fs.readFileSync('/tmp/npm-pack.json', 'utf8')); if (!result?.filename) process.exit(1); process.stdout.write(result.filename);")"
+          test -f "$PACKAGE_FILE"
+          echo "package_file=$PACKAGE_FILE" >> "$GITHUB_OUTPUT"
 
-      - name: Resolve release metadata
-        id: meta
-        run: |
-          set -euo pipefail
-          TAG="${GITHUB_REF_NAME}"
-          if [[ "${TAG}" == wecom-v* ]]; then
-            VERSION="${TAG#wecom-v}"
-          elif [[ "${TAG}" == v* ]]; then
-            VERSION="${TAG#v}"
-          else
-            echo "::error::Unsupported tag format: ${TAG}. Use v<version> or wecom-v<version>."
-            exit 1
-          fi
-          PKG_NAME="$(node -p "require('./package.json').name")"
-          PKG_VERSION="$(node -p "require('./package.json').version")"
-
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "pkg_name=${PKG_NAME}" >> "$GITHUB_OUTPUT"
-          echo "pkg_version=${PKG_VERSION}" >> "$GITHUB_OUTPUT"
-
-          echo "tag=${TAG}"
-          echo "version_from_tag=${VERSION}"
-          echo "package=${PKG_NAME}@${PKG_VERSION}"
-
-          if [ "${VERSION}" != "${PKG_VERSION}" ]; then
-            echo "::error::Tag version (${VERSION}) does not match package.json version (${PKG_VERSION})."
-            exit 1
-          fi
-
-      - name: Check npm version already published
-        id: npm_check
-        run: |
-          set -euo pipefail
-          PKG="${{ steps.meta.outputs.pkg_name }}"
-          VER="${{ steps.meta.outputs.pkg_version }}"
-          if npm view "${PKG}@${VER}" version >/dev/null 2>&1; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-            echo "npm version already published: ${PKG}@${VER}"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "npm version not published yet: ${PKG}@${VER}"
-          fi
-
-      - name: Install Dependencies
-        run: npm install --legacy-peer-deps || npm install
-
-      - name: Build Plugin
-        run: npm run build --if-present
-
-      # 🚀 自动发布到 npm (使用 OIDC 自动授权，无需 Token)
       - name: Publish to npm
-        if: steps.npm_check.outputs.exists != 'true'
-        run: npm publish --access public
+        run: npm publish "${{ steps.pack.outputs.package_file }}" --access public
 
-      - name: Prepare release notes body
-        id: notes
-        run: |
-          set -euo pipefail
-          VERSION="${{ steps.meta.outputs.version }}"
-          CHANGELOG_DIR="changelog"
-          CHANGELOG_FILE=""
-          CANDIDATES=("v${VERSION}.md")
+  github-release:
+    if: github.repository == 'YanHaidao/wecom'
+    name: Create GitHub release
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
 
-          IFS='.' read -r major minor patch <<< "${VERSION}"
-          if [[ -n "${major:-}" && -n "${minor:-}" && -n "${patch:-}" && "${patch}" =~ ^[0-9]+$ && ${#patch} -gt 2 ]]; then
-            trimmed_patch="${patch%?}"
-            CANDIDATES+=("v${major}.${minor}.${trimmed_patch}.md")
-          fi
-
-          echo "Release notes candidates:"
-          for candidate in "${CANDIDATES[@]}"; do
-            path="${CHANGELOG_DIR}/${candidate}"
-            echo " - ${path}"
-            if [[ -z "${CHANGELOG_FILE}" && -f "${path}" ]]; then
-              CHANGELOG_FILE="${path}"
-            fi
-          done
-
-          if [[ -n "${CHANGELOG_FILE}" ]]; then
-            echo "Using changelog file: ${CHANGELOG_FILE}"
-            cp "${CHANGELOG_FILE}" /tmp/release-body.md
-          else
-            echo "No matching changelog file found; using fallback notes."
-            {
-              echo "# @yanhaidao/wecom v${VERSION}"
-              echo
-              if [ "${{ steps.npm_check.outputs.exists }}" = "true" ]; then
-                echo "- npm publish skipped: version already exists."
-              else
-                echo "- npm publish completed."
-              fi
-            } > /tmp/release-body.md
-          fi
-
-      # 自动同步发布 GitHub Release
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
-        with:
-          body_path: /tmp/release-body.md
-          draft: false
-          prerelease: false
+    steps:
+      - name: Create release from tag
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "GitHub release already exists: $RELEASE_TAG"
+          else
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --verify-tag \
+              --generate-notes \
+              --title "@yanhaidao/wecom $RELEASE_TAG"
+          fi

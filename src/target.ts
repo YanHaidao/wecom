@@ -20,106 +20,47 @@ export interface WecomTarget {
     chatid?: string;
 }
 
-export interface ScopedWecomTarget {
-    accountId?: string;
-    target: WecomTarget;
-    rawTarget: string;
-}
-
-function parseUpstreamScopedTarget(raw: string): {
-    accountId?: string;
-    userId: string;
-} | undefined {
-    const legacyScoped = raw.match(/^wecom-agent-upstream:([^:]+):([^:]+):(.+)$/i);
-    if (legacyScoped) {
-        return {
-            accountId: legacyScoped[1]?.trim(),
-            userId: legacyScoped[3]?.trim() || "",
-        };
-    }
-
-    const queryIndex = raw.indexOf("?upstream_corp=");
-    if (queryIndex < 0 || !raw.startsWith("wecom-agent:")) {
-        return undefined;
-    }
-
-    const pathPart = raw.slice(0, queryIndex);
-    const match = pathPart.match(/^wecom-agent:([^:]+):user:(.+)$/i);
-    if (!match) {
-        return undefined;
-    }
-
-    return {
-        accountId: match[1]?.trim(),
-        userId: match[2]?.trim() || "",
-    };
-}
-
-export function buildWecomContextTarget(contextToken: string): string {
-    return `wecom:context:${contextToken}`;
-}
-
-export function resolveWecomContextTarget(raw: string | undefined): { contextToken: string } | undefined {
-    const trimmed = raw?.trim();
-    if (!trimmed) return undefined;
-    const match = trimmed.match(/^(?:wecom|wechatwork|wework|qywx):context:(.+)$/i);
-    const contextToken = match?.[1]?.trim();
-    return contextToken ? { contextToken } : undefined;
-}
-
 /**
  * Parses a raw target string into a WeComTarget object.
  * 解析原始目标字符串为 WeComTarget 对象。
  * 
  * 逻辑:
- * 1. 先检查显式类型前缀 (user:, group:, party:, tag:) —— 优先匹配，不受命名空间前缀影响
- * 2. 移除标准命名空间前缀 (wecom:, qywx: 等)
- * 3. 再次检查类型前缀（处理 wecom:user:xxx 格式）
- * 4. 启发式回退 (无前缀时):
+ * 1. 移除标准命名空间前缀 (wecom:, qywx: 等)。
+ * 2. 检查显式类型前缀 (party:, tag:, group:, user:)。
+ * 3. 启发式回退 (无前缀时):
  *    - 以 "wr" 或 "wc" 开头 -> Chat ID (群聊)
- *    - 纯数字 -> 默认 User ID (用户)，避免误判部门导致 81013 错误
+ *    - 纯数字 -> Party ID (部门)
  *    - 其他 -> User ID (用户)
  * 
- * @param raw - The raw target string (e.g. "party:1", "zhangsan", "wecom:user:xxx")
+ * @param raw - The raw target string (e.g. "party:1", "zhangsan", "wecom:wr123")
  */
-export function resolveWecomTarget(raw: string | undefined, options?: { preferUserForDigits?: boolean }): WecomTarget | undefined {
+export function resolveWecomTarget(raw: string | undefined): WecomTarget | undefined {
     if (!raw?.trim()) return undefined;
 
-    const trimmed = raw.trim();
+    // 1. Remove standard namespace prefixes (移除标准命名空间前缀)
+    let clean = raw.trim().replace(/^(wecom-agent|wecom|wechatwork|wework|qywx):/i, "");
 
-    // 1. 先检查原始字符串中的类型前缀（处理 user:xxx 无前缀格式）
-    // 这样即使没有 wecom: 前缀，也能正确识别类型
-    if (/^user:/i.test(trimmed)) {
-        return { touser: trimmed.replace(/^user:/i, "").trim() };
+    // 2. Explicit Type Prefixes (显式类型前缀)
+    if (/^party:/i.test(clean)) {
+        return { toparty: clean.replace(/^party:/i, "").trim() };
     }
-    if (/^group:/i.test(trimmed) || /^chat:/i.test(trimmed)) {
-        return { chatid: trimmed.replace(/^(group:|chat:)/i, "").trim() };
-    }
-    if (/^party:/i.test(trimmed) || /^dept:/i.test(trimmed)) {
-        return { toparty: trimmed.replace(/^(party:|dept:)/i, "").trim() };
-    }
-    if (/^tag:/i.test(trimmed)) {
-        return { totag: trimmed.replace(/^tag:/i, "").trim() };
-    }
-
-    // 2. Remove standard namespace prefixes (移除标准命名空间前缀)
-    let clean = trimmed.replace(/^(wecom-agent|wecom|wechatwork|wework|qywx):/i, "");
-
-    // 3. 再次检查类型前缀（处理 wecom:user:xxx 格式）
-    if (/^user:/i.test(clean)) {
-        return { touser: clean.replace(/^user:/i, "").trim() };
-    }
-    if (/^group:/i.test(clean) || /^chat:/i.test(clean)) {
-        return { chatid: clean.replace(/^(group:|chat:)/i, "").trim() };
-    }
-    if (/^party:/i.test(clean) || /^dept:/i.test(clean)) {
-        return { toparty: clean.replace(/^(party:|dept:)/i, "").trim() };
+    if (/^dept:/i.test(clean)) {
+        return { toparty: clean.replace(/^dept:/i, "").trim() };
     }
     if (/^tag:/i.test(clean)) {
         return { totag: clean.replace(/^tag:/i, "").trim() };
     }
+    if (/^group:/i.test(clean)) {
+        return { chatid: clean.replace(/^group:/i, "").trim() };
+    }
+    if (/^chat:/i.test(clean)) {
+        return { chatid: clean.replace(/^chat:/i, "").trim() };
+    }
+    if (/^user:/i.test(clean)) {
+        return { touser: clean.replace(/^user:/i, "").trim() };
+    }
 
-    // 4. Heuristics (启发式规则)
+    // 3. Heuristics (启发式规则)
 
     // Chat ID typically starts with 'wr' or 'wc'
     // 群聊 ID 通常以 'wr' (外部群) 或 'wc' 开头
@@ -127,53 +68,13 @@ export function resolveWecomTarget(raw: string | undefined, options?: { preferUs
         return { chatid: clean };
     }
 
-    // Pure digits: Default to User (纯数字默认为用户)
-    // 原因：1) Bot WS 主动推送只接受 touser/chatid，不接受 toparty/totag
-    //      2) 用户 ID 在企业微信中常为纯数字
-    //      3) 部门推送应使用显式前缀 "party:xxx" 或通过 Agent 模式
-    // 如果确实需要发送到部门，请使用 party: 前缀或 Agent 路径
+    // Pure digits are likely Department IDs (Parties)
+    // 纯数字优先被视为部门 ID (Parties)，方便运维配置 (如 "1" 代表根部门)
+    // 如果必须要发送给纯数字 ID 的用户，请使用显式前缀 "user:1001"
     if (/^\d+$/.test(clean)) {
-        if (options?.preferUserForDigits === false) {
-            return { toparty: clean };
-        }
-        return { touser: clean };
+        return { toparty: clean };
     }
 
     // Default to User (默认为用户)
     return { touser: clean };
-}
-
-export function resolveScopedWecomTarget(raw: string | undefined, defaultAccountId?: string): ScopedWecomTarget | undefined {
-    if (!raw?.trim()) return undefined;
-
-    const trimmed = raw.trim();
-
-    const upstreamScoped = parseUpstreamScopedTarget(trimmed);
-    if (upstreamScoped) {
-        const accountId = upstreamScoped.accountId || defaultAccountId;
-        return {
-            accountId,
-            target: { touser: upstreamScoped.userId },
-            rawTarget: upstreamScoped.userId,
-        };
-    }
-
-    const agentScoped = trimmed.match(/^wecom-agent:([^:]+):(.+)$/i);
-    if (agentScoped) {
-        const accountId = agentScoped[1]?.trim() || defaultAccountId;
-        const rawTarget = agentScoped[2]?.trim() || "";
-        // Agent scoped targets are almost always users in a conversation context.
-        // In this scope, we prefer treating numeric IDs as User IDs to avoid 81013 errors.
-        const target = resolveWecomTarget(rawTarget, { preferUserForDigits: true });
-        return target ? { accountId, target, rawTarget } : undefined;
-    }
-
-    const target = resolveWecomTarget(trimmed);
-    return target
-        ? {
-            accountId: defaultAccountId,
-            target,
-            rawTarget: trimmed,
-        }
-        : undefined;
 }

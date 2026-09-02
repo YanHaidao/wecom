@@ -1,70 +1,34 @@
+/**
+ * WeCom 账号类型定义
+ */
+
 import type {
-  WecomAccountConfig,
-  WecomAgentConfig,
-  WecomBotConfig,
-  WecomBotPrimaryTransport,
-  WecomNetworkConfig,
+    WecomAgentConfig,
+    WecomNetworkConfig,
 } from "./config.js";
 
-export type ResolvedMode = "disabled" | "legacy" | "matrix";
-
-export type ResolvedBotWsTransport = {
-  botId: string;
-  secret: string;
-};
-
-export type ResolvedBotWebhookTransport = {
-  token: string;
-  encodingAESKey: string;
-  receiveId: string;
-};
-
-export type ResolvedBotAccount = {
-  accountId: string;
-  configured: boolean;
-  primaryTransport: WecomBotPrimaryTransport;
-  wsConfigured: boolean;
-  webhookConfigured: boolean;
-  config: WecomBotConfig;
-  network?: WecomNetworkConfig;
-  ws?: ResolvedBotWsTransport;
-  webhook?: ResolvedBotWebhookTransport;
-  // Compatibility flattening for old webhook-centric helpers.
-  token: string;
-  encodingAESKey: string;
-  receiveId: string;
-  botId: string;
-  secret: string;
-};
-
+/**
+ * 解析后的 Agent 账号
+ */
 export type ResolvedAgentAccount = {
-  accountId: string;
-  configured: boolean;
-  callbackConfigured: boolean;
-  apiConfigured: boolean;
-  corpId: string;
-  corpSecret: string;
-  agentId?: number;
-  token: string;
-  encodingAESKey: string;
-  config: WecomAgentConfig;
-  network?: WecomNetworkConfig;
-};
-
-export type ResolvedWecomAccount = {
-  accountId: string;
-  name?: string;
-  enabled: boolean;
-  configured: boolean;
-  config: WecomAccountConfig;
-  bot?: ResolvedBotAccount;
-  agent?: ResolvedAgentAccount;
-};
-
-export type ResolvedWecomAccounts = {
-  mode: ResolvedMode;
-  defaultAccountId: string;
-  accounts: Record<string, ResolvedWecomAccount>;
-  bot?: ResolvedBotAccount;
-  agent?: ResolvedAgentAccount;
+    /** 账号 ID */
+    accountId: string;
+    /** 是否启用 */
+    enabled: boolean;
+    /** 是否配置完整 */
+    configured: boolean;
+    /** 企业 ID */
+    corpId: string;
+    /** 应用 Secret */
+    corpSecret: string;
+    /** 应用 ID (数字，可选) */
+    agentId?: number;
+    /** 回调 Token */
+    token: string;
+    /** 回调加密密钥 */
+    encodingAESKey: string;
+    /** 原始配置 */
+    config: WecomAgentConfig;
+    /** 网络配置（来自 channels.wecom.network） */
+    network?: WecomNetworkConfig;
 };

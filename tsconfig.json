@@ -1,22 +1,22 @@
 {
-    "compilerOptions": {
-        "target": "ES2022",
-        "module": "NodeNext",
-        "moduleResolution": "NodeNext",
-        "outDir": "dist",
-        "rootDir": ".",
-        "declaration": false,
-        "sourceMap": false,
-        "strict": true,
-        "skipLibCheck": true
-    },
-    "include": [
-        "index.ts",
-        "src/**/*.ts"
-    ],
-    "exclude": [
-        "dist",
-        "node_modules",
-        "**/*.test.ts"
-    ]
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2023"],
+    "declaration": true,
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "outDir": "./dist",
+    "rootDir": ".",
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["index.ts", "setup-entry.ts", "doctor-contract-api.ts", "config-doctor-api.ts", "src/**/*"],
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

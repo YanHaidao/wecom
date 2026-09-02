@@ -5,7 +5,7 @@
  * 参考: openclaw-plugin-wecom/dynamic-agent.js
  */
 
-import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 
 export interface DynamicAgentConfig {
     enabled: boolean;
@@ -13,7 +13,6 @@ export interface DynamicAgentConfig {
     groupEnabled: boolean;
     adminUsers: string[];
 }
-
 /**
  * **getDynamicAgentConfig (读取动态 Agent 配置)**
  *
@@ -48,13 +47,6 @@ export function generateAgentId(chatType: "dm" | "group", peerId: string, accoun
     return `wecom-${sanitizedAccountId}-${chatType}-${sanitizedPeer}`;
 }
 
-export function buildAgentSessionTarget(userId: string, accountId?: string): string {
-    const normalizedUserId = String(userId).trim();
-    const sanitizedAccountId = sanitizeDynamicIdPart(accountId ?? "default") || "default";
-    // Always use explicit user: prefix to avoid ambiguity with numeric party IDs
-    return `wecom-agent:${sanitizedAccountId}:user:${normalizedUserId}`;
-}
-
 /**
  * **shouldUseDynamicAgent (检查是否使用动态 Agent)**
  *
@@ -86,100 +78,4 @@ export function shouldUseDynamicAgent(params: {
         return dynamicConfig.groupEnabled;
     }
     return dynamicConfig.dmCreateAgent;
-}
-
-/**
- * 内存中已确保的 Agent ID（避免重复写入）
- */
-const ensuredDynamicAgentIds = new Set<string>();
-
-/**
- * 写入队列（避免并发冲突）
- */
-let ensureDynamicAgentWriteQueue: Promise<void> = Promise.resolve();
-
-/**
- * 将 Agent ID 插入 agents.list（如果不存在）
- */
-function upsertAgentIdOnlyEntry(cfg: Record<string, unknown>, agentId: string): boolean {
-    if (!cfg.agents || typeof cfg.agents !== "object") {
-        cfg.agents = {};
-    }
-
-    const agentsObj = cfg.agents as Record<string, unknown>;
-    const currentList: Array<{ id: string }> = Array.isArray(agentsObj.list) ? agentsObj.list as Array<{ id: string }> : [];
-    const existingIds = new Set(
-        currentList
-            .map((entry) => entry?.id?.trim().toLowerCase())
-            .filter((id): id is string => Boolean(id))
-    );
-
-    let changed = false;
-    const nextList = [...currentList];
-
-    // 首次创建时保留 main 作为默认
-    if (nextList.length === 0) {
-        nextList.push({ id: "main" });
-        existingIds.add("main");
-        changed = true;
-    }
-
-    if (!existingIds.has(agentId.toLowerCase())) {
-        nextList.push({ id: agentId });
-        changed = true;
-    }
-
-    if (changed) {
-        agentsObj.list = nextList;
-    }
-
-    return changed;
-}
-
-/**
- * **ensureDynamicAgentListed (确保动态 Agent 已添加到 agents.list)**
- *
- * 将动态生成的 Agent ID 添加到 OpenClaw 配置中的 agents.list。
- * 特性：
- * - 幂等：使用内存 Set 避免重复写入
- * - 串行：使用 Promise 队列避免并发冲突
- * - 异步：不阻塞消息处理流程
- */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function ensureDynamicAgentListed(agentId: string, runtime: any): Promise<void> {
-    const normalizedId = String(agentId).trim().toLowerCase();
-    if (!normalizedId) return;
-    if (ensuredDynamicAgentIds.has(normalizedId)) return;
-
-    const configRuntime = runtime?.config;
-    if (!configRuntime?.loadConfig || !configRuntime?.writeConfigFile) return;
-
-    ensureDynamicAgentWriteQueue = ensureDynamicAgentWriteQueue
-        .then(async () => {
-            if (ensuredDynamicAgentIds.has(normalizedId)) return;
-
-            const latestConfig = configRuntime.loadConfig!();
-            if (!latestConfig || typeof latestConfig !== "object") return;
-
-            const changed = upsertAgentIdOnlyEntry(latestConfig as Record<string, unknown>, normalizedId);
-            if (changed) {
-                await configRuntime.writeConfigFile!(latestConfig as unknown);
-            }
-
-            ensuredDynamicAgentIds.add(normalizedId);
-        })
-        .catch((err) => {
-            console.warn(`[wecom] 动态 Agent 添加失败: ${normalizedId}`, err);
-        });
-
-    await ensureDynamicAgentWriteQueue;
-}
-
-/**
- * **resetEnsuredCache (重置已确保缓存)**
- *
- * 主要用于测试场景，重置内存中的缓存状态。
- */
-export function resetEnsuredCache(): void {
-    ensuredDynamicAgentIds.clear();
 }
